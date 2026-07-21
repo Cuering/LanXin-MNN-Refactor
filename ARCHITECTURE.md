@@ -59,3 +59,12 @@ companion → core-memory
 
 `config.json` 中 `backend_type` 建议：`opencl`（失败再 `cpu`）。  
 引擎层记录实际 backend 与 load 错误，禁止“看起来 READY 其实 stub”。
+
+## 进度
+
+- [x] P0 仓库骨架 + MNN download(arm64/armv7) + JNI + CI 绿
+- [x] P1 domain 状态机 + Sanitizer
+- [x] P2 core-memory 文件持久化 + Decide + 轻量记取
+- [x] P3 companion 本地闭环（enrich + generate）
+- [ ] P4 记忆 UI / 导入导出 / 与旧 App 数据兼容
+- [ ] P5 云端路由 / ASR / TTS / Live2D 迁移

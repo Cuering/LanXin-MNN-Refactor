@@ -2,7 +2,7 @@ package com.lanxin.core.memory
 
 import java.util.concurrent.ConcurrentHashMap
 
-/** 进程内实现，便于先打通陪伴链路；后续可换持久化。 */
+/** 进程内实现，单测与演示用。 */
 class InMemoryMemoryStore : MemoryStore {
     private val map = ConcurrentHashMap<String, MemoryItem>()
 
@@ -15,12 +15,16 @@ class InMemoryMemoryStore : MemoryStore {
     }
 
     override suspend fun list(limit: Int): List<MemoryItem> =
-        map.values.sortedByDescending { it.updatedAt }.take(limit)
+        map.values
+            .filter { it.status == MemoryStatus.ACTIVE }
+            .sortedByDescending { it.updatedAt }
+            .take(limit)
 
     override suspend fun search(query: String, limit: Int): List<MemoryItem> {
         val tokens = tokenize(query)
         if (tokens.isEmpty()) return list(limit)
         return map.values
+            .filter { it.status == MemoryStatus.ACTIVE }
             .map { item -> item to score(item, tokens) }
             .filter { it.second > 0 }
             .sortedByDescending { it.second * 10 + it.first.importance }
@@ -31,15 +35,12 @@ class InMemoryMemoryStore : MemoryStore {
     private fun tokenize(text: String): List<String> {
         val lower = text.trim().lowercase()
         if (lower.isEmpty()) return emptyList()
-        // 英文按空白/标点；中文按连续字块 + 2-gram，便于「喝咖啡」命中「美式咖啡」
         val parts = Regex("""[\p{L}\p{N}]+""").findAll(lower).map { it.value }.toList()
         val grams = mutableListOf<String>()
         for (p in parts) {
             grams += p
             if (p.length >= 2 && p.any { it.code > 127 }) {
-                for (i in 0 until p.length - 1) {
-                    grams += p.substring(i, i + 2)
-                }
+                for (i in 0 until p.length - 1) grams += p.substring(i, i + 2)
             }
         }
         return grams.distinct().filter { it.length >= 2 || it.any { c -> c.isDigit() } }

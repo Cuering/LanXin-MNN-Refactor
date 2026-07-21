@@ -1,17 +1,21 @@
 package com.lanxin.companion
 
 import com.lanxin.core.memory.MemoryEnricher
+import com.lanxin.core.memory.MemoryItem
+import com.lanxin.core.memory.MemoryStore
+import com.lanxin.core.memory.MemoryType
 import com.lanxin.localllm.domain.EngineState
 import com.lanxin.localllm.domain.LocalLlmEngine
 import com.lanxin.localllm.domain.ReplySanitizer
+import java.util.UUID
 
 /**
- * 本地陪伴会话：记忆 enrich + 本地 LLM 生成。
- * UI 无关，方便单测与替换。
+ * 本地陪伴会话：记忆 enrich + 可选轻量记取 + 本地 LLM。
  */
 class LocalCompanionSession(
     private val engine: LocalLlmEngine,
     private val memoryEnricher: MemoryEnricher,
+    private val memoryStore: MemoryStore? = null,
     private val persona: String = "你是兰心/兰儿，温柔亲近的陪伴角色，用第一人称对用户说话。"
 ) {
     data class TurnResult(
@@ -35,6 +39,7 @@ class LocalCompanionSession(
                 ok = false
             )
         }
+        maybeCapturePreference(userMessage)
         val system = memoryEnricher.enrich(
             userMessage,
             "$persona\n${ReplySanitizer.NO_THINK_INSTRUCTION}"
@@ -54,6 +59,31 @@ class LocalCompanionSession(
             )
         }
         return TurnResult(reply = raw, engineState = engine.state, ok = true)
+    }
+
+    /** 极简规则：用户说「我喜欢/我爱/我叫」时落一条 preference/factual。 */
+    private suspend fun maybeCapturePreference(userMessage: String) {
+        val store = memoryStore ?: return
+        val t = userMessage.trim()
+        val patterns = listOf(
+            Regex("""我(?:喜欢|爱)(.+)""") to MemoryType.PREFERENCE,
+            Regex("""我(?:的名字|叫)(.+)""") to MemoryType.FACTUAL,
+            Regex("""请记住[：:\s]*(.+)""") to MemoryType.INSTRUCTION
+        )
+        for ((re, type) in patterns) {
+            val m = re.find(t) ?: continue
+            val content = m.groupValues.getOrNull(1)?.trim()?.trim('。', '！', '!', '.', ' ') ?: continue
+            if (content.length < 2 || content.length > 120) continue
+            store.upsert(
+                MemoryItem(
+                    id = UUID.randomUUID().toString(),
+                    content = content,
+                    type = type,
+                    importance = 0.85f
+                )
+            )
+            break
+        }
     }
 
     private fun stateLabel(s: EngineState): String = when (s) {

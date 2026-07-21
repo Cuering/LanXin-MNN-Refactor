@@ -23,9 +23,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.lanxin.companion.LocalCompanionSession
-import com.lanxin.core.memory.InMemoryMemoryStore
+import com.lanxin.core.memory.FileMemoryStore
 import com.lanxin.core.memory.MemoryEnricher
 import com.lanxin.core.memory.MemoryItem
+import com.lanxin.core.memory.MemoryType
 import com.lanxin.localllm.domain.EngineState
 import com.lanxin.localllm.domain.MnnLocalLlmEngine
 import kotlinx.coroutines.launch
@@ -36,10 +37,16 @@ import java.util.UUID
 fun CompanionScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val store = remember { InMemoryMemoryStore() }
+    val store = remember {
+        FileMemoryStore(File(context.filesDir, "memory/memories.json"))
+    }
     val engine = remember { MnnLocalLlmEngine() }
     val session = remember {
-        LocalCompanionSession(engine, MemoryEnricher(store))
+        LocalCompanionSession(
+            engine = engine,
+            memoryEnricher = MemoryEnricher(store),
+            memoryStore = store
+        )
     }
     var modelPath by remember {
         mutableStateOf(
@@ -51,19 +58,23 @@ fun CompanionScreen() {
     val lines = remember { mutableStateListOf<String>() }
 
     LaunchedEffect(Unit) {
-        store.upsert(
-            MemoryItem(
-                id = UUID.randomUUID().toString(),
-                content = "用户是哥哥，称呼亲近。",
-                importance = 0.8f
+        // seed only if empty
+        if (store.list(1).isEmpty()) {
+            store.upsert(
+                MemoryItem(
+                    id = UUID.randomUUID().toString(),
+                    content = "用户是哥哥，称呼亲近。",
+                    type = MemoryType.FACTUAL,
+                    importance = 0.8f
+                )
             )
-        )
+        }
     }
 
     fun stateText(s: EngineState): String = when (s) {
         is EngineState.Uninitialized -> "未初始化"
         is EngineState.Loading -> "加载中…"
-        is EngineState.Ready -> "READY path=${s.modelPath} backend=${s.backendHint ?: "?"}"
+        is EngineState.Ready -> "READY backend=${s.backendHint ?: "?"}"
         is EngineState.NativeMissing -> "NATIVE_MISSING: ${s.detail}"
         is EngineState.LoadFailed -> "LOAD_FAILED: ${s.detail}"
         is EngineState.Stub -> "STUB: ${s.reason}"
@@ -92,6 +103,12 @@ fun CompanionScreen() {
                     lines.add("[系统] $status")
                 }
             }) { Text("加载本地脑") }
+            Button(onClick = {
+                scope.launch {
+                    val n = store.list(20).size
+                    lines.add("[记忆] 当前活跃 $n 条")
+                }
+            }) { Text("记忆条数") }
         }
         LazyColumn(
             Modifier
