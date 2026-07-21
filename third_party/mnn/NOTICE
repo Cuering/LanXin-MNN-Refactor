@@ -1,0 +1,25 @@
+MNN (Mobile Neural Network)
+===========================
+
+Project: MNN
+Upstream: https://github.com/alibaba/MNN
+Version used by LanXin Android: 3.6.0
+Packaging:
+  - Prebuilt Android shared libraries from official release zip
+    mnn_3.6.0_android_armv7_armv8_cpu_opencl_vulkan.zip
+    (extracted arm64-v8a/*.so into app/src/main/jniLibs at build time; not committed)
+  - Public headers under third_party/mnn/include (MNN + llm engine headers)
+  - Thin JNI wrapper libmnn_lanxin.so built from app/src/main/cpp/
+
+License: Apache License 2.0
+Full text: https://github.com/alibaba/MNN/blob/master/LICENSE
+
+Copyright: Alibaba Group Holding Limited and MNN contributors.
+
+Notes for LanXin:
+- Runtime native libraries are downloaded at Gradle build time (downloadMnnNative).
+- LLM model weights (*.mnn / *.mnn.weight / tokenizer) are NOT redistributed in this
+  repository; users place them under LanXin/models/local-llm/ (see docs/local-inference.md
+  and docs/debug-assets.md).
+- Official demo apps/Android/MnnLlmChat is reference only; LanXin uses a minimal JNI
+  surface (load / generate / unload) over MNN::Transformer::Llm.
