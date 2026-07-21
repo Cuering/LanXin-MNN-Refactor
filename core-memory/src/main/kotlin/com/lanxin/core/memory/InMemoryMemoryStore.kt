@@ -18,11 +18,35 @@ class InMemoryMemoryStore : MemoryStore {
         map.values.sortedByDescending { it.updatedAt }.take(limit)
 
     override suspend fun search(query: String, limit: Int): List<MemoryItem> {
-        val q = query.trim().lowercase()
-        if (q.isEmpty()) return list(limit)
+        val tokens = tokenize(query)
+        if (tokens.isEmpty()) return list(limit)
         return map.values
-            .filter { it.content.lowercase().contains(q) || it.tags.any { t -> t.lowercase().contains(q) } }
-            .sortedByDescending { it.importance }
+            .map { item -> item to score(item, tokens) }
+            .filter { it.second > 0 }
+            .sortedByDescending { it.second * 10 + it.first.importance }
             .take(limit)
+            .map { it.first }
+    }
+
+    private fun tokenize(text: String): List<String> {
+        val lower = text.trim().lowercase()
+        if (lower.isEmpty()) return emptyList()
+        // 英文按空白/标点；中文按连续字块 + 2-gram，便于「喝咖啡」命中「美式咖啡」
+        val parts = Regex("""[\p{L}\p{N}]+""").findAll(lower).map { it.value }.toList()
+        val grams = mutableListOf<String>()
+        for (p in parts) {
+            grams += p
+            if (p.length >= 2 && p.any { it.code > 127 }) {
+                for (i in 0 until p.length - 1) {
+                    grams += p.substring(i, i + 2)
+                }
+            }
+        }
+        return grams.distinct().filter { it.length >= 2 || it.any { c -> c.isDigit() } }
+    }
+
+    private fun score(item: MemoryItem, tokens: List<String>): Int {
+        val hay = (item.content + " " + item.tags.joinToString(" ")).lowercase()
+        return tokens.count { hay.contains(it) }
     }
 }
