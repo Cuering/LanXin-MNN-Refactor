@@ -105,13 +105,14 @@ app → voice
 - [x] 修：JUnit4 测试方法不能有返回值；`deleteRecursively()` 作最后表达式会返回 Boolean
 - [x] P4 记忆 UI（列表/搜索/增删）+ `MemoryImportExport` JSON 导入导出（ignoreUnknownKeys 兼容旧字段）
 - [x] P5 骨架：`ChatRouter` + `CloudChatClient` + `voice`(ASR/TTS/Pet stub) + companion 路由/语音轮次 + UI 策略切换 + 单测
+- [x] P5.1 真云端：`OpenAiCompatibleCloudChatClient` + DataStore 设置页 + 探测连通 + 单测（HttpTransport 可注入）
 
 ### 下次接续
 
 1. 先读本文件 + `README.md`
 2. 确认最新 CI 是否 success
 3. 可选加深：
-   - 真 `CloudChatClient`（OkHttp + OpenAI 兼容，密钥走 DataStore）
    - sherpa-onnx ASR/TTS AAR 构建期下载（对齐旧 App，不进 git）
    - Live2D WebView 壳 + 仓内/下载 Mao sample
+   - CloudConfig 热更新不重建 session（Flow 注入）
 4. 避坑：`*.gradle.kts` 禁止 `#` 注释；JUnit4 `@Test` 方法返回类型必须是 Unit；stub 禁止伪装 Ready

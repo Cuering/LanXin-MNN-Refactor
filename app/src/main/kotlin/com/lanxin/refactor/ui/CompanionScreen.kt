@@ -29,35 +29,56 @@ import com.lanxin.core.memory.MemoryEnricher
 import com.lanxin.core.memory.MemoryItem
 import com.lanxin.core.memory.MemoryType
 import com.lanxin.localllm.domain.ChatRoutePolicy
+import com.lanxin.localllm.domain.CloudChatClient
 import com.lanxin.localllm.domain.EngineState
 import com.lanxin.localllm.domain.MnnLocalLlmEngine
 import com.lanxin.localllm.domain.StubCloudChatClient
 import com.lanxin.localllm.domain.UnconfiguredCloudChatClient
+import com.lanxin.refactor.cloud.CloudConfig
+import com.lanxin.refactor.cloud.OpenAiCompatibleCloudChatClient
+import com.lanxin.refactor.settings.CloudSettingsStore
 import com.lanxin.voice.StubAsrEngine
 import com.lanxin.voice.StubTtsEngine
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 
 @Composable
-fun CompanionScreen(onOpenMemory: () -> Unit = {}) {
+fun CompanionScreen(
+    onOpenMemory: () -> Unit = {},
+    onOpenCloud: () -> Unit = {}
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val store = remember {
         FileMemoryStore(File(context.filesDir, "memory/memories.json"))
     }
+    val cloudSettings = remember { CloudSettingsStore(context.applicationContext) }
+    val cloudConfigRef = remember { AtomicReference(CloudConfig()) }
+    val realCloudClient = remember {
+        OpenAiCompatibleCloudChatClient { cloudConfigRef.get() }
+    }
     val engine = remember { MnnLocalLlmEngine() }
     var policy by remember { mutableStateOf(ChatRoutePolicy.PREFER_LOCAL) }
-    var useStubCloud by remember { mutableStateOf(false) }
+    // none | stub | real
+    var cloudMode by remember { mutableStateOf("none") }
     val asr = remember { StubAsrEngine() }
     val tts = remember { StubTtsEngine(simulateReady = false) }
+    var cloudConfigured by remember { mutableStateOf(false) }
+
+    fun resolveCloud(): CloudChatClient = when (cloudMode) {
+        "stub" -> StubCloudChatClient()
+        "real" -> realCloudClient
+        else -> UnconfiguredCloudChatClient()
+    }
 
     fun buildSession(): LocalCompanionSession = LocalCompanionSession(
         engine = engine,
         memoryEnricher = MemoryEnricher(store),
         memoryStore = store,
         routePolicy = policy,
-        cloudClient = if (useStubCloud) StubCloudChatClient() else UnconfiguredCloudChatClient(),
+        cloudClient = resolveCloud(),
         asrEngine = asr,
         ttsEngine = tts,
         autoSpeak = true
@@ -83,10 +104,17 @@ fun CompanionScreen(onOpenMemory: () -> Unit = {}) {
                 )
             )
         }
-        // 显式 load 语音 stub，状态可观测
         asr.load(null)
         tts.load(null)
+        cloudSettings.configFlow.collect { cfg ->
+            cloudConfigRef.set(cfg)
+            cloudConfigured = cfg.apiKey.isNotBlank() && cfg.baseUrl.isNotBlank()
+        }
+    }
+
+    LaunchedEffect(Unit) {
         lines.add("[语音] ASR=${asr.state.shortLabel} TTS=${tts.state.shortLabel}")
+        lines.add("[云端] Flow 监听中")
     }
 
     fun stateText(s: EngineState): String = when (s) {
@@ -105,7 +133,7 @@ fun CompanionScreen(onOpenMemory: () -> Unit = {}) {
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(status)
-        Text("路由=$policy 云端stub=$useStubCloud | ASR=${asr.state.shortLabel} TTS=${tts.state.shortLabel}")
+        Text("路由=$policy 云=$cloudMode cfg=$cloudConfigured | ASR=${asr.state.shortLabel} TTS=${tts.state.shortLabel}")
         OutlinedTextField(
             value = modelPath,
             onValueChange = { modelPath = it },
@@ -129,10 +157,22 @@ fun CompanionScreen(onOpenMemory: () -> Unit = {}) {
                 onClick = { policy = ChatRoutePolicy.PREFER_CLOUD },
                 label = { Text("云优先") }
             )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
-                selected = useStubCloud,
-                onClick = { useStubCloud = !useStubCloud },
+                selected = cloudMode == "none",
+                onClick = { cloudMode = "none" },
+                label = { Text("云关") }
+            )
+            FilterChip(
+                selected = cloudMode == "stub",
+                onClick = { cloudMode = "stub" },
                 label = { Text("云stub") }
+            )
+            FilterChip(
+                selected = cloudMode == "real",
+                onClick = { cloudMode = "real" },
+                label = { Text("云真实") }
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -151,6 +191,7 @@ fun CompanionScreen(onOpenMemory: () -> Unit = {}) {
                 }
             }) { Text("记忆条数") }
             Button(onClick = onOpenMemory) { Text("记忆管理") }
+            Button(onClick = onOpenCloud) { Text("云设置") }
         }
         LazyColumn(
             Modifier

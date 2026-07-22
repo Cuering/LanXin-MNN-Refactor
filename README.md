@@ -15,10 +15,10 @@
 
 ## 进度概览
 
-- P0–P4 完成：MNN 集成、domain 状态机、记忆持久化、companion 本地闭环、记忆 UI + JSON 导入导出。
-- **P5 骨架完成**：云端/本地路由策略、ASR/TTS/Live2D 占位接口与 stub、companion 接入、UI 策略切换、单元测试。
+- P0–P5 完成：MNN、记忆、companion、路由、voice stub、记忆 UI。
+- **P5.1**：OpenAI 兼容云端客户端 + DataStore 密钥设置 + 探测连通。
 - 已修：`.kts` 禁止 `#` 注释；JUnit4 `@Test` 返回值须为 Unit。
-- 下一步（可选）：真云端 HTTP 客户端、sherpa native、Live2D WebView。
+- 下一步（可选）：sherpa native、Live2D WebView。
 
 详见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 
@@ -44,6 +44,7 @@
 ## P5 使用提示（App 内）
 
 - 路由芯片：本地优先 / 仅本地 / 云优先
-- 「云stub」：打开后使用 `StubCloudChatClient`（本地不可用时可降级）
+- 云端芯片：云关 / 云stub / 云真实（真实走 DataStore 中的 OpenAI 兼容配置）
+- 「云设置」：Base URL / API Key / Model，可探测连通
 - 「语音hint」：把输入框文本当 ASR 识别结果走 `chatFromVoice`
 - 状态行会显示 ASR/TTS 的 `STUB` / `READY`，禁止静默失败

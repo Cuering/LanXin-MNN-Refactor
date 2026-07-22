@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.lanxin.refactor.ui.CloudSettingsScreen
 import com.lanxin.refactor.ui.CompanionScreen
 import com.lanxin.refactor.ui.MemoryScreen
 
@@ -23,7 +24,11 @@ class MainActivity : ComponentActivity() {
                     var route by remember { mutableStateOf("companion") }
                     when (route) {
                         "memory" -> MemoryScreen(onBack = { route = "companion" })
-                        else -> CompanionScreen(onOpenMemory = { route = "memory" })
+                        "cloud" -> CloudSettingsScreen(onBack = { route = "companion" })
+                        else -> CompanionScreen(
+                            onOpenMemory = { route = "memory" },
+                            onOpenCloud = { route = "cloud" }
+                        )
                     }
                 }
             }
