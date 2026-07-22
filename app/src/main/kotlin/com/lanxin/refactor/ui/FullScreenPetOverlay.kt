@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,88 +39,86 @@ fun FullScreenPetOverlay(
     onMicClick: () -> Unit,
     onExit: () -> Unit
 ) {
-    Surface(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black),
-        color = Color.Black
+            .background(Color.Black)
+            .systemBarsPadding()
     ) {
-        Box(Modifier = Modifier.fillMaxSize().systemBarsPadding()) {
-            AndroidView(
-                factory = { ctx ->
-                    FrameLayout(ctx).also { container ->
-                        container.layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        container.setBackgroundColor(android.graphics.Color.BLACK)
-                        petHost.attach(ctx, container)
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+        AndroidView(
+            factory = { ctx ->
+                FrameLayout(ctx).also { container ->
+                    container.layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    container.setBackgroundColor(android.graphics.Color.BLACK)
+                    petHost.attach(ctx, container)
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
 
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.35f))
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-            ) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .fillMaxWidth()
+                .background(Color.Black.copy(alpha = 0.35f))
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = "全屏宠物",
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                text = statusLine,
+                color = Color.White.copy(alpha = 0.85f),
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                text = micStatus,
+                color = Color.White.copy(alpha = 0.75f),
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Color.Black.copy(alpha = 0.45f))
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(onClick = onToggleVad) {
                 Text(
-                    text = "全屏宠物",
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = statusLine,
-                    color = Color.White.copy(alpha = 0.85f),
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Text(
-                    text = micStatus,
-                    color = Color.White.copy(alpha = 0.75f),
-                    style = MaterialTheme.typography.bodySmall
+                    if (vadEnabled) "VAD开" else "VAD关",
+                    color = Color.White
                 )
             }
-
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.45f))
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Button(
+                onClick = onMicClick,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (recording) {
+                        Color(0xFFB71C1C)
+                    } else {
+                        Color(0xFF1565C0)
+                    }
+                )
             ) {
-                TextButton(onClick = onToggleVad) {
-                    Text(
-                        if (vadEnabled) "VAD开" else "VAD关",
-                        color = Color.White
-                    )
-                }
-                Button(
-                    onClick = onMicClick,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (recording) {
-                            Color(0xFFB71C1C)
-                        } else {
-                            Color(0xFF1565C0)
-                        }
-                    )
-                ) {
-                    Text(
-                        when {
-                            recording && vadEnabled -> "录音中·听静音…"
-                            recording -> "停麦发送"
-                            else -> "开始录音"
-                        }
-                    )
-                }
-                Button(onClick = onExit) {
-                    Text("退出全屏")
-                }
+                Text(
+                    when {
+                        recording && vadEnabled -> "录音中·听静音…"
+                        recording -> "停麦发送"
+                        else -> "开始录音"
+                    }
+                )
+            }
+            Button(onClick = onExit) {
+                Text("退出全屏")
             }
         }
     }
