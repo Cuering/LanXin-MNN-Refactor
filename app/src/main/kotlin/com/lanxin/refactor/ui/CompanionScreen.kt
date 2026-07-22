@@ -29,11 +29,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.Modifier.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.lanxin.companion.ConversationHistory
+import com.lanxin.companion.FileConversationHistoryStore
 import com.lanxin.companion.LocalCompanionSession
 import com.lanxin.core.memory.FileMemoryStore
 import com.lanxin.core.memory.MemoryEnricher
@@ -68,6 +70,10 @@ fun CompanionScreen(
     val store = remember {
         FileMemoryStore(File(context.filesDir, "memory/memories.json"))
     }
+    val historyStore = remember {
+        FileConversationHistoryStore(File(context.filesDir, "memory/conversation_history.json"))
+    }
+    val conversationHistory = remember { ConversationHistory(maxTurns = 20) }
     val cloudSettings = remember { CloudSettingsStore(context.applicationContext) }
     val cloudConfigRef = remember { AtomicReference(CloudConfig()) }
     val realCloudClient = remember {
@@ -120,16 +126,21 @@ fun CompanionScreen(
         else -> UnconfiguredCloudChatClient()
     }
 
-    fun buildSession(): LocalCompanionSession = LocalCompanionSession(
-        engine = engine,
-        memoryEnricher = MemoryEnricher(store),
-        memoryStore = store,
-        routePolicy = policy,
-        cloudClient = resolveCloud(),
-        asrEngine = asr,
-        ttsEngine = tts,
-        autoSpeak = true
-    )
+    // 复用同一会话实例（引擎/历史/store），仅在路由/云模式变化时重建
+    val session = remember(policy, cloudMode) {
+        LocalCompanionSession(
+            engine = engine,
+            memoryEnricher = MemoryEnricher(store),
+            memoryStore = store,
+            routePolicy = policy,
+            cloudClient = resolveCloud(),
+            asrEngine = asr,
+            ttsEngine = tts,
+            autoSpeak = true,
+            conversationHistory = conversationHistory,
+            historyStore = historyStore
+        )
+    }
 
     fun hasMicPermission(): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
@@ -163,6 +174,13 @@ fun CompanionScreen(
                 )
             )
         }
+        val histN = session.loadHistory()
+        if (histN > 0) {
+            addLine("[历史] 已恢复 $histN 条对话")
+            session.historyTurns.takeLast(6).forEach { t ->
+                addLine("${t.role}: ${t.content}")
+            }
+        }
         val asrState = asr.load(asrPath)
         val ttsState = tts.load(ttsPath)
         voiceStatus = "ASR=${asrState.shortLabel} TTS=${ttsState.shortLabel}"
@@ -192,17 +210,17 @@ fun CompanionScreen(
 
     suspend fun runVoiceTurn(pcm: ByteArray?, hint: String?, label: String) {
         petHost.postExpression("speak")
-        val r = buildSession().chatFromVoice(hintText = hint, pcm16le = pcm)
+        val r = session.chatFromVoice(hintText = hint, pcm16le = pcm)
         status = stateText(r.engineState)
         val ttsInfo = r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""
         addLine("兰儿[$label/${r.backend}]$ttsInfo: ${r.reply}")
         // P9：优先 PCM RMS 驱动嘴型；无 PCM 时按时长占位
-        val tts = r.tts
-        if (tts != null && tts.ok) {
+        val ttsR = r.tts
+        if (ttsR != null && ttsR.ok) {
             petHost.lipSyncFromPcm(
-                pcm16le = tts.pcm16le,
-                sampleRateHz = tts.pcmSampleRate,
-                durationMsFallback = tts.audioDurationMs
+                pcm16le = ttsR.pcm16le,
+                sampleRateHz = ttsR.pcmSampleRate,
+                durationMsFallback = ttsR.audioDurationMs
             )
         } else {
             petHost.postMouthOpen(0f)
@@ -219,7 +237,7 @@ fun CompanionScreen(
         Text(status)
         Text(
             "路由=$policy 云=$cloudMode cfg=$cloudConfigured | " +
-                "ASR=${asr.state.shortLabel} TTS=${tts.state.shortLabel}"
+                "ASR=${asr.state.shortLabel} TTS=${tts.state.shortLabel} | 历史=${session.historyTurns.size}"
         )
         Text("$micStatus | $petStatus | ${petHost.state.shortLabel}")
 
@@ -303,7 +321,7 @@ fun CompanionScreen(
             Button(onClick = {
                 scope.launch {
                     status = "加载中…"
-                    val s = buildSession().ensureLoaded(modelPath)
+                    val s = session.ensureLoaded(modelPath)
                     status = stateText(s)
                     addLine("[系统] $status")
                 }
@@ -327,6 +345,12 @@ fun CompanionScreen(
                     permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                 }
             }) { Text("要麦权") }
+            Button(onClick = {
+                scope.launch {
+                    session.clearHistory()
+                    addLine("[历史] 已清空")
+                }
+            }) { Text("清历史") }
             Button(onClick = onOpenMemory) { Text("记忆") }
             Button(onClick = onOpenCloud) { Text("云设置") }
         }
@@ -355,7 +379,7 @@ fun CompanionScreen(
                     addLine("哥哥: $msg")
                     scope.launch {
                         petHost.postExpression("speak")
-                        val r = buildSession().chat(msg)
+                        val r = session.chat(msg)
                         status = stateText(r.engineState)
                         val ttsInfo =
                             r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""

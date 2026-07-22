@@ -61,4 +61,20 @@ class ConversationHistoryTest {
         h.add("用户", "  hello  ")
         assertEquals("hello", h.turns.single().content)
     }
+
+    @Test
+    fun replaceAll_trimsToCapacity() {
+        val h = ConversationHistory(maxTurns = 3)
+        h.replaceAll(
+            listOf(
+                ConversationTurn("用户", "a"),
+                ConversationTurn("兰儿", "b"),
+                ConversationTurn("用户", "c"),
+                ConversationTurn("兰儿", "d")
+            )
+        )
+        assertEquals(3, h.size)
+        assertEquals("b", h.turns.first().content)
+        assertEquals("d", h.turns.last().content)
+    }
 }

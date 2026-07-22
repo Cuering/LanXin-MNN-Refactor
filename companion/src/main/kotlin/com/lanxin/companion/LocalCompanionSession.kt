@@ -20,11 +20,13 @@ import com.lanxin.voice.TtsEngine
 import com.lanxin.voice.TtsResult
 import com.lanxin.voice.VoiceEngineState
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 本地陪伴会话：记忆 enrich + 多轮对话历史 + 本地/云端路由 + 可选 TTS。
+ * 本地陪伴会话：记忆 enrich + 多轮对话历史（可持久化）+ 本地/云端路由 + 可选 TTS。
  *
  * @param conversationHistory 多轮对话历史；传 null 禁用历史
+ * @param historyStore 可选落盘；调用 [loadHistory] 后可从上次会话续聊
  */
 class LocalCompanionSession(
     private val engine: LocalLlmEngine,
@@ -36,9 +38,11 @@ class LocalCompanionSession(
     private val asrEngine: AsrEngine = StubAsrEngine(),
     private val ttsEngine: TtsEngine = StubTtsEngine(),
     private val autoSpeak: Boolean = true,
-    private val conversationHistory: ConversationHistory? = ConversationHistory()
+    private val conversationHistory: ConversationHistory? = ConversationHistory(),
+    private val historyStore: ConversationHistoryStore? = null
 ) {
     private val router = ChatRouter(routePolicy)
+    private val historyLoaded = AtomicBoolean(false)
 
     data class TurnResult(
         val reply: String,
@@ -67,8 +71,24 @@ class LocalCompanionSession(
         ttsEngine.load(ttsPath)
     }
 
+    /**
+     * 从 [historyStore] 加载历史到内存。幂等：成功后再次调用直接返回。
+     * @return 加载后的条数；禁用历史或无 store 时返回 0
+     */
+    suspend fun loadHistory(): Int {
+        val hist = conversationHistory ?: return 0
+        val store = historyStore ?: return hist.size
+        if (historyLoaded.get()) return hist.size
+        val loaded = store.load()
+        hist.replaceAll(loaded)
+        historyLoaded.set(true)
+        return hist.size
+    }
+
     suspend fun clearHistory() {
         conversationHistory?.clear()
+        historyStore?.clear()
+        historyLoaded.set(true)
     }
 
     /**
@@ -76,6 +96,7 @@ class LocalCompanionSession(
      * 自动维护多轮对话历史（若 [conversationHistory] 不为 null）。
      */
     suspend fun chat(userMessage: String, maxTokens: Int = 256): TurnResult {
+        loadHistory()
         maybeCapturePreference(userMessage)
         // 先读历史（不含本轮），成功后再追加，避免当前用户消息重复进 prompt
         val historyBlock = conversationHistory?.formatForPrompt()?.let { h ->
@@ -115,8 +136,7 @@ class LocalCompanionSession(
                 routeReason = used.reason
             )
         }
-        conversationHistory?.add("用户", userMessage)
-        conversationHistory?.add("兰儿", reply)
+        appendHistory(userMessage, reply)
         val ttsResult = if (autoSpeak) ttsEngine.speak(reply) else null
         return TurnResult(
             reply = reply,
@@ -148,6 +168,13 @@ class LocalCompanionSession(
             )
         }
         return chat(asr.text!!, maxTokens)
+    }
+
+    private suspend fun appendHistory(userMessage: String, reply: String) {
+        val hist = conversationHistory ?: return
+        hist.add("用户", userMessage)
+        hist.add("兰儿", reply)
+        historyStore?.save(hist.turns)
     }
 
     private suspend fun runBackend(
