@@ -24,8 +24,9 @@ class ConversationHistory(
 
     fun add(role: String, content: String) {
         _turns.add(ConversationTurn(role, content.trim()))
+        // 用 removeAt(0)，避免 JVM/Kotlin 对 removeFirst() 的 NoSuchMethodError
         while (_turns.size > maxTurns) {
-            _turns.removeFirst()
+            _turns.removeAt(0)
         }
     }
 
