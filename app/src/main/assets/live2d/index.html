@@ -3,46 +3,73 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <title>LanXin Pet Placeholder</title>
+  <title>LanXin Pet</title>
   <style>
     html, body {
       margin: 0; padding: 0; width: 100%; height: 100%;
-      background: linear-gradient(160deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      background: radial-gradient(ellipse at 50% 20%, #2a2140 0%, #12101c 55%, #0a0a10 100%);
       overflow: hidden;
-      font-family: system-ui, sans-serif;
-      color: #eaeaea;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color: #f2eef8;
+      touch-action: none;
     }
     #stage {
-      position: absolute; inset: 0;
-      display: flex; align-items: center; justify-content: center;
-      flex-direction: column;
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      /* \u5b89\u5168\u8fb9\u8ddd\uff1a\u5168\u5c4f\u65f6\u5934\u811a\u4e0d\u88ab\u88c1 */
+      padding: 4% 6% 12%;
+      box-sizing: border-box;
     }
-    canvas {
-      width: min(90vw, 280px);
-      height: min(90vw, 280px);
-      border-radius: 50%;
-      box-shadow: 0 8px 32px rgba(0,0,0,.35);
-      background: radial-gradient(circle at 40% 35%, #ffd6e0, #c9b1ff 55%, #7b6cf6);
+    #figure-wrap {
+      /* contain\uff1a\u5b8c\u6574\u5f62\u8c61\uff0c\u7b49\u6bd4\u7f29\u653e\uff0c\u4e0d\u88c1\u5207 */
+      width: 100%;
+      height: 100%;
+      max-width: min(92vw, 520px);
+      max-height: 100%;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      position: relative;
     }
-    #label {
-      margin-top: 16px;
-      font-size: 14px;
-      opacity: .85;
+    canvas#face {
+      /* \u7ad6\u6784\u56fe\uff1a\u5b8c\u6574\u8eab\u4f53\u6bd4\u4f8b\uff0cobject-fit:contain \u8bed\u4e49 */
+      width: auto;
+      height: auto;
+      max-width: 100%;
+      max-height: 100%;
+      aspect-ratio: 3 / 4;
+      object-fit: contain;
+      display: block;
+      border-radius: 18px;
+      box-shadow: 0 12px 40px rgba(0,0,0,.4);
+      background: transparent;
+    }
+    #hud {
+      position: absolute;
+      left: 0; right: 0; bottom: 2%;
       text-align: center;
-      padding: 0 16px;
-    }
-    #expr {
-      margin-top: 6px;
+      pointer-events: none;
+      opacity: .72;
       font-size: 12px;
-      opacity: .6;
+      letter-spacing: .02em;
     }
+    #hud .title { font-size: 13px; opacity: .9; margin-bottom: 2px; }
+    #hud .sub { opacity: .55; font-size: 11px; }
   </style>
 </head>
 <body>
   <div id="stage">
-    <canvas id="face" width="320" height="320"></canvas>
-    <div id="label">兰儿 · Live2D 占位<br/>放入 moc3 后可替换为真模型</div>
-    <div id="expr">expression: idle</div>
+    <div id="figure-wrap">
+      <!-- \u7ad6\u5c4f\u5b8c\u6574\u5f62\u8c61\u753b\u5e03\uff1a\u903b\u8f91\u5206\u8fa8\u7387\u56fa\u5b9a\uff0cCSS contain \u7f29\u653e -->
+      <canvas id="face" width="360" height="480"></canvas>
+    </div>
+  </div>
+  <div id="hud">
+    <div class="title" id="label">\u5170\u513f \u00b7 \u966a\u4f34\u5360\u4f4d</div>
+    <div class="sub" id="expr">expression: idle \u00b7 \u5b8c\u6574\u663e\u793a contain</div>
   </div>
   <script>
     (function () {
@@ -54,78 +81,135 @@
       let expression = 'idle';
       let t = 0;
 
-      function draw() {
-        t += 0.04;
+      function fitCanvasCss() {
+        // \u6309\u7236\u5bb9\u5668\u7528 contain \u89c4\u5219\u8ba1\u7b97 CSS \u50cf\u7d20\uff0c\u4fdd\u6301 3:4 \u5b8c\u6574\u5165\u753b
+        const wrap = document.getElementById('figure-wrap');
+        const rw = wrap.clientWidth || window.innerWidth;
+        const rh = wrap.clientHeight || window.innerHeight;
+        const ar = 360 / 480;
+        let w = rw, h = w / ar;
+        if (h > rh) { h = rh; w = h * ar; }
+        canvas.style.width = Math.floor(w) + 'px';
+        canvas.style.height = Math.floor(h) + 'px';
+      }
+      window.addEventListener('resize', fitCanvasCss);
+      fitCanvasCss();
+
+      function drawFigure() {
+        t += 0.035;
         const w = canvas.width, h = canvas.height;
         ctx.clearRect(0, 0, w, h);
 
-        // face circle already via CSS bg; draw features
-        const cx = w / 2, cy = h / 2 + 10;
-        // soft face disk
-        const g = ctx.createRadialGradient(cx - 30, cy - 40, 20, cx, cy, 140);
-        g.addColorStop(0, '#ffe8f0');
-        g.addColorStop(1, '#c9b1ff');
-        ctx.fillStyle = g;
+        const cx = w / 2;
+        // \u547c\u5438\u5fae\u52a8
+        const breath = Math.sin(t * 1.2) * 2;
+
+        // \u2014\u2014 \u5b8c\u6574\u534a\u8eab\uff1a\u5934 + \u9888 + \u80a9 + \u8eab\u4f53\uff08\u4e0d\u88ab\u88c1\uff09\u2014\u2014
+        // body
+        const bodyTop = h * 0.42 + breath;
+        const bodyGrad = ctx.createLinearGradient(cx, bodyTop, cx, h);
+        bodyGrad.addColorStop(0, '#d8c4ff');
+        bodyGrad.addColorStop(1, '#8b7cf0');
+        ctx.fillStyle = bodyGrad;
         ctx.beginPath();
-        ctx.arc(cx, cy, 120, 0, Math.PI * 2);
+        ctx.moveTo(cx - 78, bodyTop + 20);
+        ctx.quadraticCurveTo(cx - 110, h * 0.7, cx - 95, h - 8);
+        ctx.lineTo(cx + 95, h - 8);
+        ctx.quadraticCurveTo(cx + 110, h * 0.7, cx + 78, bodyTop + 20);
+        ctx.closePath();
+        ctx.fill();
+
+        // shoulders ribbon
+        ctx.fillStyle = 'rgba(255,255,255,.18)';
+        ctx.beginPath();
+        ctx.ellipse(cx, bodyTop + 36, 86, 22, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // neck
+        ctx.fillStyle = '#f0d5de';
+        ctx.fillRect(cx - 16, bodyTop - 18, 32, 28);
+
+        // head
+        const hy = h * 0.30 + breath;
+        const headR = 78;
+        const hg = ctx.createRadialGradient(cx - 22, hy - 28, 12, cx, hy, headR);
+        hg.addColorStop(0, '#ffeaf2');
+        hg.addColorStop(1, '#e0c4ff');
+        ctx.fillStyle = hg;
+        ctx.beginPath();
+        ctx.arc(cx, hy, headR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // hair bangs
+        ctx.fillStyle = '#5b4a8a';
+        ctx.beginPath();
+        ctx.ellipse(cx, hy - 48, 72, 40, 0, Math.PI, 0);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(cx - 58, hy - 10, 22, 50, -0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(cx + 58, hy - 10, 22, 50, 0.3, 0, Math.PI * 2);
         ctx.fill();
 
         // eyes
-        const eyeY = cy - 20;
-        const eyeOpen = blink > 0 ? 0.15 : 1;
-        ctx.fillStyle = '#2b2b3d';
-        [[cx - 40, eyeY], [cx + 40, eyeY]].forEach(function (p) {
+        const eyeY = hy - 6;
+        const eyeOpen = blink > 0 ? 0.12 : 1;
+        [[cx - 28, eyeY], [cx + 28, eyeY]].forEach(function (p) {
+          ctx.fillStyle = '#2b2b3d';
           ctx.beginPath();
-          ctx.ellipse(p[0], p[1], 12, 14 * eyeOpen, 0, 0, Math.PI * 2);
+          ctx.ellipse(p[0], p[1], 11, 13 * eyeOpen, 0, 0, Math.PI * 2);
           ctx.fill();
           if (eyeOpen > 0.5) {
             ctx.fillStyle = '#fff';
             ctx.beginPath();
-            ctx.arc(p[0] + 3, p[1] - 4, 4, 0, Math.PI * 2);
+            ctx.arc(p[0] + 3, p[1] - 3, 3.5, 0, Math.PI * 2);
             ctx.fill();
-            ctx.fillStyle = '#2b2b3d';
           }
         });
 
         // mouth
-        const mouthOpen = Math.max(mouth, expression === 'speak' ? 0.35 + 0.15 * Math.sin(t * 6) : 0);
+        const mouthOpen = Math.max(
+          mouth,
+          expression === 'speak' ? 0.32 + 0.14 * Math.sin(t * 7) : 0
+        );
+        ctx.lineWidth = 3;
         ctx.strokeStyle = '#a05a7a';
         ctx.fillStyle = '#d4789c';
-        ctx.lineWidth = 3;
         ctx.beginPath();
         if (mouthOpen < 0.08) {
-          ctx.moveTo(cx - 22, cy + 45);
-          ctx.quadraticCurveTo(cx, cy + 55, cx + 22, cy + 45);
+          ctx.moveTo(cx - 16, hy + 32);
+          ctx.quadraticCurveTo(cx, hy + 40, cx + 16, hy + 32);
           ctx.stroke();
         } else {
-          ctx.ellipse(cx, cy + 48, 18, 8 + mouthOpen * 22, 0, 0, Math.PI * 2);
+          ctx.ellipse(cx, hy + 34, 14, 6 + mouthOpen * 18, 0, 0, Math.PI * 2);
           ctx.fill();
         }
 
         // blush
-        ctx.fillStyle = 'rgba(255,140,160,.35)';
-        ctx.beginPath(); ctx.ellipse(cx - 58, cy + 20, 14, 8, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.ellipse(cx + 58, cy + 20, 14, 8, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,140,160,.32)';
+        ctx.beginPath(); ctx.ellipse(cx - 48, hy + 18, 12, 7, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(cx + 48, hy + 18, 12, 7, 0, 0, Math.PI * 2); ctx.fill();
 
         if (blink > 0) blink -= 0.08;
         if (Math.random() < 0.004) blink = 1;
-        requestAnimationFrame(draw);
+        requestAnimationFrame(drawFigure);
       }
-      requestAnimationFrame(draw);
+      requestAnimationFrame(drawFigure);
 
       window.LanXinPet = {
         setExpression: function (name) {
           expression = name || 'idle';
-          exprEl.textContent = 'expression: ' + expression;
+          exprEl.textContent = 'expression: ' + expression + ' \u00b7 \u5b8c\u6574\u663e\u793a contain';
         },
         setMouth: function (amount) {
           mouth = Math.max(0, Math.min(1, Number(amount) || 0));
           if (mouth > 0.05) expression = 'speak';
         },
         ready: true,
-        version: 'placeholder-1'
+        version: 'placeholder-contain-2'
       };
-      console.log('LanXinPet placeholder ready');
+      console.log('LanXinPet contain-ready');
     })();
   </script>
 </body>
