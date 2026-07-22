@@ -30,6 +30,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 云端走 [CloudChatClient.chatMessages] 真多轮 messages 数组；
  * 本地仍把历史格式化进 prompt 文本块。
  *
+ * TTS 播报走 [ReplySanitizer.forSpeech]（剥标签/emoji），气泡用已清洗 displayText。
+ *
  * @param conversationHistory 多轮对话历史；传 null 禁用历史
  * @param historyStore 可选落盘；调用 [loadHistory] 后可从上次会话续聊
  */
@@ -109,7 +111,8 @@ class LocalCompanionSession(
         val cloudMessages = buildCloudMessages(userMessage)
         val system = memoryEnricher.enrich(
             userMessage,
-            "$persona\n${ReplySanitizer.NO_THINK_INSTRUCTION}"
+            ReplySanitizer.appendOutputConstraint(persona, showThinking = false)
+                ?: "$persona\n${ReplySanitizer.NO_THINK_INSTRUCTION}"
         )
         val localUsable = engine.state.isUsable
         val cloudOk = cloudClient.isConfigured
@@ -146,7 +149,12 @@ class LocalCompanionSession(
             )
         }
         appendHistory(userMessage, reply)
-        val ttsResult = if (autoSpeak) ttsEngine.speak(reply) else null
+        // TTS 只念干净正文，不学/不念标签与 emoji
+        val ttsResult = if (autoSpeak) {
+            ttsEngine.speak(ReplySanitizer.forSpeech(reply))
+        } else {
+            null
+        }
         return TurnResult(
             reply = reply,
             engineState = engine.state,
@@ -223,12 +231,12 @@ class LocalCompanionSession(
                     appendLine("用户：$userMessage")
                     append("兰儿：")
                 }
+                // 引擎出口已 forDisplay 清洗
                 engine.generate(prompt, maxTokens)?.takeIf { it.isNotBlank() }
             }
             ChatBackend.CLOUD -> {
-                // 真多轮：system 只放 persona+记忆；历史走 messages 数组
                 val r = cloudClient.chatMessages(system, cloudMessages, maxTokens)
-                if (r.ok) r.text?.let { ReplySanitizer.clean(it).displayText }.orEmpty().ifBlank { null }
+                if (r.ok) r.text?.let { ReplySanitizer.forDisplay(it) }.orEmpty().ifBlank { null }
                 else null
             }
             ChatBackend.NONE -> null
