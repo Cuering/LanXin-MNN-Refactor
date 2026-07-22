@@ -55,11 +55,25 @@ jobs:
       - name: Assemble debug
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
-      - name: Verify sherpa so in APK
+      - name: Verify all engines packaged in APK
         run: |
+          set -euo pipefail
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
-          unzip -l "$APK" | grep -E 'libsherpa-onnx-jni|libonnxruntime' | head -20
-          unzip -l "$APK" | grep -q 'libsherpa-onnx-jni.so'
+          echo "APK=$APK size=$(stat -c%s "$APK")"
+          unzip -l "$APK" | tee /tmp/apk-list.txt | head -5
+          # Sherpa ASR/TTS JNI + onnxruntime
+          grep -E 'lib/[^/]+/libsherpa-onnx-jni\.so' /tmp/apk-list.txt
+          grep -E 'lib/[^/]+/libonnxruntime\.so' /tmp/apk-list.txt || \
+            echo "WARN: libonnxruntime may be static-linked into sherpa jni"
+          # MNN LLM stack
+          grep -E 'lib/[^/]+/libMNN\.so' /tmp/apk-list.txt
+          grep -E 'lib/[^/]+/libllm\.so' /tmp/apk-list.txt
+          grep -E 'lib/[^/]+/libMNN_Express\.so' /tmp/apk-list.txt
+          # our JNI wrapper (CMake target: mnn_lanxin)
+          grep -E 'lib/[^/]+/libmnn_lanxin\.so' /tmp/apk-list.txt
+          # Live2D placeholder assets
+          grep -q 'assets/live2d/index.html' /tmp/apk-list.txt
+          echo "OK: MNN + sherpa + live2d assets present in APK"
 
       - name: Upload APK
         if: success()

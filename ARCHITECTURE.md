@@ -114,6 +114,7 @@ app → voice
 - [x] P5 骨架：`ChatRouter` + `CloudChatClient` + `voice`(ASR/TTS/Pet stub) + companion 路由/语音轮次 + UI 策略切换 + 单测
 - [x] P5.1 真云端：`OpenAiCompatibleCloudChatClient` + DataStore 设置页 + 探测连通 + 单测（HttpTransport 可注入）
 - [x] P6 sherpa 真 ASR/TTS：AAR 构建期下载 + Bridge + Engine（失败不伪装 READY）+ UI 加载语音 + CI 校验 so
+- [x] P7 真麦 `PcmAudioRecorder` + TTS `PcmAudioPlayer` 接 `SherpaTtsEngine` + Live2D WebView 壳（assets 占位）+ CI 校验 MNN/sherpa/live2d 全进 APK
 
 ### 与旧 App 语音差异（防闪退）
 
@@ -123,13 +124,18 @@ app → voice
 | UI 可能当真机继续走 | 状态行展示真实 shortLabel；hint 旁路不改状态 |
 | AAR 在 app 模块 | AAR 在 `voice` 以 `api` 传递，app 不重复打包 |
 
+### 打包进 APK 的引擎（全量）
+
+| 组件 | 来源 | APK 校验 |
+|------|------|----------|
+| MNN LLM | `local-llm-core` jniLibs + `libmnn_lanxin.so` | libMNN / libllm / libmnn_lanxin |
+| Sherpa ASR/TTS | `voice` api AAR | libsherpa-onnx-jni |
+| 录音/播放 | `PcmAudioRecorder` / `PcmAudioPlayer` | 纯 Java/Kotlin |
+| Live2D 壳 | `Live2DWebViewHost` + assets | assets/live2d/index.html |
+
 ### 下次接续
 
 1. 先读本文件 + `README.md`
-2. 确认最新 CI 是否 success（含 sherpa so 进 APK）
-3. 可选加深：
-   - 真麦克风录音 → PCM → ASR（权限 + AudioRecord）
-   - TTS AudioTrack 播放（当前 speak 返回 chars + 可选 PCM 缓存）
-   - Live2D WebView 壳 + 仓内/下载 Mao sample
-   - CloudConfig 热更新不重建 session（Flow 注入）
+2. 确认最新 CI 是否 success（含 MNN + sherpa + live2d 进 APK）
+3. 可选加深：真 moc3 模型、流式 ASR、CloudConfig 热更新
 4. 避坑：`*.gradle.kts` 禁止 `#` 注释；JUnit4 `@Test` 返回 Unit；**禁止 native 失败伪装 Ready**

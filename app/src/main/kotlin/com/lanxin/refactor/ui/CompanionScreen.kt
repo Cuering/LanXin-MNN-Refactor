@@ -1,10 +1,18 @@
 package com.lanxin.refactor.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +21,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -23,6 +32,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import com.lanxin.companion.LocalCompanionSession
 import com.lanxin.core.memory.FileMemoryStore
 import com.lanxin.core.memory.MemoryEnricher
@@ -37,7 +48,9 @@ import com.lanxin.localllm.domain.UnconfiguredCloudChatClient
 import com.lanxin.refactor.cloud.CloudConfig
 import com.lanxin.refactor.cloud.OpenAiCompatibleCloudChatClient
 import com.lanxin.refactor.settings.CloudSettingsStore
+import com.lanxin.voice.PcmAudioRecorder
 import com.lanxin.voice.VoiceModelPaths
+import com.lanxin.voice.pet.Live2DWebViewHost
 import com.lanxin.voice.sherpa.SherpaAsrEngine
 import com.lanxin.voice.sherpa.SherpaTtsEngine
 import kotlinx.coroutines.launch
@@ -62,14 +75,23 @@ fun CompanionScreen(
     }
     val engine = remember { MnnLocalLlmEngine() }
     var policy by remember { mutableStateOf(ChatRoutePolicy.PREFER_LOCAL) }
-    // none | stub | real
     var cloudMode by remember { mutableStateOf("none") }
 
-    // 真 sherpa 引擎（无 so / 无模型时状态诚实，不伪装 READY）
+    // 全真引擎打进包：MNN + Sherpa ASR/TTS + 麦 + Live2D 壳（无模型时状态诚实，不伪装 READY）
     val asr = remember { SherpaAsrEngine() }
     val tts = remember { SherpaTtsEngine() }
+    val mic = remember { PcmAudioRecorder() }
+    val petHost = remember { Live2DWebViewHost() }
     var cloudConfigured by remember { mutableStateOf(false) }
     var voiceStatus by remember { mutableStateOf("语音未加载") }
+    var micStatus by remember { mutableStateOf("麦:空闲") }
+    var petStatus by remember { mutableStateOf("宠物:未挂载") }
+    var recording by remember { mutableStateOf(false) }
+    val lines = remember { mutableStateListOf<String>() }
+
+    fun addLine(s: String) {
+        lines.add(s)
+    }
 
     val filesBase = remember {
         context.getExternalFilesDir(null) ?: context.filesDir
@@ -86,6 +108,11 @@ fun CompanionScreen(
                 ?: VoiceModelPaths.defaultTtsDir(filesBase)
         )
     }
+    var modelPath by remember {
+        mutableStateOf(File(filesBase, "models/local-llm").absolutePath)
+    }
+    var input by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("未加载") }
 
     fun resolveCloud(): CloudChatClient = when (cloudMode) {
         "stub" -> StubCloudChatClient()
@@ -104,14 +131,26 @@ fun CompanionScreen(
         autoSpeak = true
     )
 
-    var modelPath by remember {
-        mutableStateOf(
-            File(filesBase, "models/local-llm").absolutePath
-        )
+    fun hasMicPermission(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        micStatus = if (granted) "麦:已授权" else "麦:权限拒绝"
+        addLine(if (granted) "[麦] RECORD_AUDIO 已授予" else "[麦] 权限被拒")
     }
-    var input by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf("未加载") }
-    val lines = remember { mutableStateListOf<String>() }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            scope.launch {
+                runCatching { mic.cancelRecording() }
+                runCatching { tts.stop() }
+            }
+            petHost.detach()
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (store.list(1).isEmpty()) {
@@ -124,13 +163,18 @@ fun CompanionScreen(
                 )
             )
         }
-        // 启动时尝试加载外置 ASR/TTS；失败不崩，状态可见
         val asrState = asr.load(asrPath)
         val ttsState = tts.load(ttsPath)
         voiceStatus = "ASR=${asrState.shortLabel} TTS=${ttsState.shortLabel}"
-        lines.add("[语音] $voiceStatus")
-        lines.add("[语音路径] asr=$asrPath")
-        lines.add("[语音路径] tts=$ttsPath")
+        addLine("[引擎] MNN=已打包 JNI | Sherpa ASR/TTS=已打包 so")
+        addLine("[语音] $voiceStatus")
+        addLine("[语音路径] asr=$asrPath")
+        addLine("[语音路径] tts=$ttsPath")
+        if (!hasMicPermission()) {
+            addLine("[麦] 未授权，点「要麦权」申请")
+        } else {
+            micStatus = "麦:已授权"
+        }
         cloudSettings.configFlow.collect { cfg ->
             cloudConfigRef.set(cfg)
             cloudConfigured = cfg.apiKey.isNotBlank() && cfg.baseUrl.isNotBlank()
@@ -146,17 +190,51 @@ fun CompanionScreen(
         is EngineState.Stub -> "STUB: ${s.reason}"
     }
 
+    suspend fun runVoiceTurn(pcm: ByteArray?, hint: String?, label: String) {
+        petHost.postExpression("speak")
+        petHost.postMouthOpen(0.4f)
+        val r = buildSession().chatFromVoice(hintText = hint, pcm16le = pcm)
+        status = stateText(r.engineState)
+        val ttsInfo = r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""
+        addLine("兰儿[$label/${r.backend}]$ttsInfo: ${r.reply}")
+        petHost.postMouthOpen(0f)
+        petHost.postExpression("idle")
+    }
+
     Column(
         Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(status)
         Text(
             "路由=$policy 云=$cloudMode cfg=$cloudConfigured | " +
                 "ASR=${asr.state.shortLabel} TTS=${tts.state.shortLabel}"
         )
+        Text("$micStatus | $petStatus | ${petHost.state.shortLabel}")
+
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(160.dp)
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    FrameLayout(ctx).also { container ->
+                        container.layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        petHost.attach(ctx, container)
+                        petStatus = "宠物:已挂载"
+                        addLine("[宠物] Live2D 壳 ${petHost.state.shortLabel}")
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
         OutlinedTextField(
             value = modelPath,
             onValueChange = { modelPath = it },
@@ -168,14 +246,14 @@ fun CompanionScreen(
             value = asrPath,
             onValueChange = { asrPath = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("ASR 模型目录 (models/asr/...)") },
+            label = { Text("ASR 模型目录") },
             singleLine = true
         )
         OutlinedTextField(
             value = ttsPath,
             onValueChange = { ttsPath = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("TTS 模型目录 (models/tts/...)") },
+            label = { Text("TTS 模型目录") },
             singleLine = true
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -212,31 +290,35 @@ fun CompanionScreen(
                 label = { Text("云真实") }
             )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Button(onClick = {
                 scope.launch {
                     status = "加载中…"
                     val s = buildSession().ensureLoaded(modelPath)
                     status = stateText(s)
-                    lines.add("[系统] $status")
+                    addLine("[系统] $status")
                 }
             }) { Text("加载本地脑") }
             Button(onClick = {
                 scope.launch {
-                    lines.add("[语音] 重新加载…")
+                    addLine("[语音] 重新加载…")
                     val asrState = asr.load(asrPath)
                     val ttsState = tts.load(ttsPath)
                     voiceStatus = "ASR=${asrState.shortLabel} TTS=${ttsState.shortLabel}"
-                    lines.add("[语音] $voiceStatus nativeAsr=${asr.isUsingNative} nativeTts=${tts.isUsingNative}")
+                    addLine(
+                        "[语音] $voiceStatus nativeAsr=${asr.isUsingNative} nativeTts=${tts.isUsingNative}"
+                    )
                 }
             }) { Text("加载语音") }
             Button(onClick = {
-                scope.launch {
-                    val n = store.list(20).size
-                    lines.add("[记忆] 当前活跃 $n 条")
+                if (hasMicPermission()) {
+                    micStatus = "麦:已授权"
+                    addLine("[麦] 已有权限")
+                } else {
+                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                 }
-            }) { Text("记忆条数") }
-            Button(onClick = onOpenMemory) { Text("记忆管理") }
+            }) { Text("要麦权") }
+            Button(onClick = onOpenMemory) { Text("记忆") }
             Button(onClick = onOpenCloud) { Text("云设置") }
         }
         LazyColumn(
@@ -252,18 +334,25 @@ fun CompanionScreen(
             modifier = Modifier.fillMaxWidth(),
             label = { Text("对兰儿说") }
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
             Button(
                 onClick = {
                     val msg = input.trim()
                     if (msg.isEmpty()) return@Button
                     input = ""
-                    lines.add("哥哥: $msg")
+                    addLine("哥哥: $msg")
                     scope.launch {
+                        petHost.postExpression("speak")
                         val r = buildSession().chat(msg)
                         status = stateText(r.engineState)
-                        val ttsInfo = r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""
-                        lines.add("兰儿[${r.backend}/${r.routeReason}]$ttsInfo: ${r.reply}")
+                        val ttsInfo =
+                            r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""
+                        addLine("兰儿[${r.backend}/${r.routeReason}]$ttsInfo: ${r.reply}")
+                        petHost.postMouthOpen(0f)
+                        petHost.postExpression("idle")
                     }
                 },
                 modifier = Modifier.weight(1f)
@@ -273,16 +362,55 @@ fun CompanionScreen(
                     val msg = input.trim()
                     if (msg.isEmpty()) return@Button
                     input = ""
-                    lines.add("哥哥(语音hint): $msg")
-                    scope.launch {
-                        val r = buildSession().chatFromVoice(hintText = msg)
-                        status = stateText(r.engineState)
-                        val ttsInfo = r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""
-                        lines.add("兰儿[${r.backend}]$ttsInfo: ${r.reply}")
-                    }
+                    addLine("哥哥(语音hint): $msg")
+                    scope.launch { runVoiceTurn(pcm = null, hint = msg, label = "hint") }
                 },
                 modifier = Modifier.weight(1f)
             ) { Text("语音hint") }
+            Button(
+                onClick = {
+                    scope.launch {
+                        if (!recording) {
+                            if (!hasMicPermission()) {
+                                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                addLine("[麦] 请先授权再按开始录音")
+                                return@launch
+                            }
+                            val started = mic.startRecording()
+                            if (started.isFailure) {
+                                micStatus = "麦:启动失败"
+                                addLine("[麦] start失败: ${started.exceptionOrNull()?.message}")
+                                return@launch
+                            }
+                            recording = true
+                            micStatus = "麦:录音中…"
+                            addLine("[麦] 录音中，再点「停麦发送」")
+                        } else {
+                            val stopped = mic.stopRecording()
+                            recording = false
+                            if (stopped.isFailure) {
+                                micStatus = "麦:停止失败"
+                                addLine("[麦] stop失败: ${stopped.exceptionOrNull()?.message}")
+                                return@launch
+                            }
+                            val audio = stopped.getOrNull()!!
+                            micStatus =
+                                "麦:已录 ${audio.durationMs}ms ${audio.byteCount}B stub=${audio.isStub}"
+                            addLine(
+                                "[麦] PCM ${audio.byteCount}B ${audio.sampleRateHz}Hz " +
+                                    "${audio.durationMs}ms stub=${audio.isStub}"
+                            )
+                            runVoiceTurn(
+                                pcm = audio.pcm16leMono,
+                                hint = input.trim().ifBlank { null },
+                                label = "mic"
+                            )
+                            input = ""
+                        }
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            ) { Text(if (recording) "停麦发送" else "开始录音") }
         }
     }
 }

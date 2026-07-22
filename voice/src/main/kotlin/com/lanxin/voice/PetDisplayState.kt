@@ -19,7 +19,7 @@ sealed class PetDisplayState {
         }
 }
 
-/** 最小占位实现：始终 Placeholder，不装 WebView。 */
+/** 最小占位实现：始终 Placeholder，不装 WebView（JVM 单测用）。真机见 pet.Live2DWebViewHost。 */
 class PlaceholderPetDisplay {
     var state: PetDisplayState = PetDisplayState.Placeholder("p5_skeleton")
         private set
@@ -32,3 +32,4 @@ class PlaceholderPetDisplay {
         state = PetDisplayState.Placeholder("p5_skeleton")
     }
 }
+

@@ -6,18 +6,29 @@
 
 | 模块 | 职责 |
 |------|------|
-| `local-llm-core` | MNN so 下载 + JNI + `MnnBridge` |
+| `local-llm-core` | MNN so 下载 + JNI + `MnnBridge`（`libmnn_lanxin`） |
 | `local-llm-domain` | `LocalLlmEngine` / 状态机 / `ReplySanitizer` / `ChatRouter` / `CloudChatClient` |
 | `core-memory` | 记忆存储 + prompt 注入 |
 | `companion` | 陪伴会话编排（记忆 + 路由 + 可选语音） |
-| `voice` | ASR/TTS 接口、Stub、**sherpa 真引擎**（AAR 构建期下载） |
-| `app` | 壳 UI |
+| `voice` | ASR/TTS 接口、Stub、**sherpa 真引擎**、录音/播放、Live2D 壳 |
+| `app` | 壳 UI + assets/live2d 占位 |
+
+## 打进包的引擎（全量）
+
+| 引擎 | 打包方式 | 无模型时 |
+|------|----------|----------|
+| MNN LLM | jniLibs + CMake `libmnn_lanxin.so` | `NativeMissing` / `LoadFailed`，不伪装 READY |
+| Sherpa ASR | `voice` 依赖 sherpa-onnx AAR（api） | 同上 |
+| Sherpa TTS | 同上 + `PcmAudioPlayer` 播 PCM | 同上 |
+| 麦克风 | `PcmAudioRecorder`（需 RECORD_AUDIO） | 可 stub / 语音hint |
+| Live2D | WebView + `assets/live2d/index.html` | 占位 canvas，可换 moc3 |
 
 ## 进度概览
 
 - P0–P5：MNN、记忆、companion、路由、voice stub、记忆 UI
 - P5.1：OpenAI 兼容云端 + DataStore 设置
-- **P6：sherpa-onnx 真 ASR/TTS**（失败不伪装 READY，避免旧 App 假就绪闪退路径）
+- P6：sherpa-onnx 真 ASR/TTS
+- **P7：真麦录音 + TTS 播放 + Live2D 壳；CI 校验 MNN/sherpa/live2d 全进 APK**
 
 详见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 
@@ -46,13 +57,14 @@ Android/data/com.lanxin.refactor/files/
   models/tts/<name>/    # sherpa TTS（matcha/vits，matcha 需 vocoder）
 ```
 
-ASR 示例（流式中文小模型）：`scripts` 可参考旧仓 `download-debug-asr.sh`  
 默认约定见 `VoiceModelPaths`。
 
 ## App 内使用
 
-- **加载语音**：按外置路径 load ASR/TTS；状态行显示 `STUB` / `NATIVE_MISSING` / `READY(sherpa:…)`
+- **加载本地脑 / 加载语音**：外置路径 load；状态行显示真实 `STUB` / `NATIVE_MISSING` / `READY(...)`
+- **要麦权 → 开始录音 → 停麦发送**：真 PCM → ASR → chat → TTS 播放
 - **语音hint**：输入框文本当识别结果（无麦 / 无 so 可联调）
+- **Live2D 区**：顶部 WebView 占位；说话时驱动 mouth/expression 占位 API
 - 路由：本地优先 / 仅本地 / 云优先；云设置页配 OpenAI 兼容 API
 
 ## 与旧语音模块

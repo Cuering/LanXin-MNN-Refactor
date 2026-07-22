@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>LanXin Pet Placeholder</title>
+  <style>
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: linear-gradient(160deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      overflow: hidden;
+      font-family: system-ui, sans-serif;
+      color: #eaeaea;
+    }
+    #stage {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column;
+    }
+    canvas {
+      width: min(90vw, 280px);
+      height: min(90vw, 280px);
+      border-radius: 50%;
+      box-shadow: 0 8px 32px rgba(0,0,0,.35);
+      background: radial-gradient(circle at 40% 35%, #ffd6e0, #c9b1ff 55%, #7b6cf6);
+    }
+    #label {
+      margin-top: 16px;
+      font-size: 14px;
+      opacity: .85;
+      text-align: center;
+      padding: 0 16px;
+    }
+    #expr {
+      margin-top: 6px;
+      font-size: 12px;
+      opacity: .6;
+    }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="face" width="320" height="320"></canvas>
+    <div id="label">兰儿 · Live2D 占位<br/>放入 moc3 后可替换为真模型</div>
+    <div id="expr">expression: idle</div>
+  </div>
+  <script>
+    (function () {
+      const canvas = document.getElementById('face');
+      const ctx = canvas.getContext('2d');
+      const exprEl = document.getElementById('expr');
+      let mouth = 0;
+      let blink = 0;
+      let expression = 'idle';
+      let t = 0;
+
+      function draw() {
+        t += 0.04;
+        const w = canvas.width, h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        // face circle already via CSS bg; draw features
+        const cx = w / 2, cy = h / 2 + 10;
+        // soft face disk
+        const g = ctx.createRadialGradient(cx - 30, cy - 40, 20, cx, cy, 140);
+        g.addColorStop(0, '#ffe8f0');
+        g.addColorStop(1, '#c9b1ff');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 120, 0, Math.PI * 2);
+        ctx.fill();
+
+        // eyes
+        const eyeY = cy - 20;
+        const eyeOpen = blink > 0 ? 0.15 : 1;
+        ctx.fillStyle = '#2b2b3d';
+        [[cx - 40, eyeY], [cx + 40, eyeY]].forEach(function (p) {
+          ctx.beginPath();
+          ctx.ellipse(p[0], p[1], 12, 14 * eyeOpen, 0, 0, Math.PI * 2);
+          ctx.fill();
+          if (eyeOpen > 0.5) {
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(p[0] + 3, p[1] - 4, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#2b2b3d';
+          }
+        });
+
+        // mouth
+        const mouthOpen = Math.max(mouth, expression === 'speak' ? 0.35 + 0.15 * Math.sin(t * 6) : 0);
+        ctx.strokeStyle = '#a05a7a';
+        ctx.fillStyle = '#d4789c';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        if (mouthOpen < 0.08) {
+          ctx.moveTo(cx - 22, cy + 45);
+          ctx.quadraticCurveTo(cx, cy + 55, cx + 22, cy + 45);
+          ctx.stroke();
+        } else {
+          ctx.ellipse(cx, cy + 48, 18, 8 + mouthOpen * 22, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // blush
+        ctx.fillStyle = 'rgba(255,140,160,.35)';
+        ctx.beginPath(); ctx.ellipse(cx - 58, cy + 20, 14, 8, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(cx + 58, cy + 20, 14, 8, 0, 0, Math.PI * 2); ctx.fill();
+
+        if (blink > 0) blink -= 0.08;
+        if (Math.random() < 0.004) blink = 1;
+        requestAnimationFrame(draw);
+      }
+      requestAnimationFrame(draw);
+
+      window.LanXinPet = {
+        setExpression: function (name) {
+          expression = name || 'idle';
+          exprEl.textContent = 'expression: ' + expression;
+        },
+        setMouth: function (amount) {
+          mouth = Math.max(0, Math.min(1, Number(amount) || 0));
+          if (mouth > 0.05) expression = 'speak';
+        },
+        ready: true,
+        version: 'placeholder-1'
+      };
+      console.log('LanXinPet placeholder ready');
+    })();
+  </script>
+</body>
+</html>
