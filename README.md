@@ -14,10 +14,9 @@
 
 ## 进度概览
 
-- 已完成核心模块 (`local-llm-core`, `local-llm-domain`, `core-memory`, `companion`) 的骨架搭建与 MNN 集成。
-- `core-memory` 已实现文件持久化、记忆决策门 (`MemoryDecide`) 和轻量自动记取。
-- 当前 `app` 模块因缺少 `kotlinx.serialization.json` 依赖，编译失败。**正在修复。**
-
+- P0–P3 完成：MNN 集成、domain 状态机、记忆持久化、companion 本地闭环。
+- 已修：`app` 增加 `kotlinx-serialization-json`；`.kts` 误用 `#` 注释导致脚本编译失败（已改为 `//`）。
+- 下一步：P4 记忆 UI / 导入导出。
 
 详见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 
