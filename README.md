@@ -14,9 +14,9 @@
 
 ## 进度概览
 
-- P0–P3 完成：MNN 集成、domain 状态机、记忆持久化、companion 本地闭环。
-- 已修：`app` 增加 `kotlinx-serialization-json`；`.kts` 误用 `#` 注释导致脚本编译失败（已改为 `//`）。
-- 下一步：P4 记忆 UI / 导入导出。
+- P0–P4 完成：MNN 集成、domain 状态机、记忆持久化、companion 本地闭环、记忆 UI + JSON 导入导出。
+- 已修：`.kts` 禁止 `#` 注释；JUnit4 `@Test` 返回值须为 Unit。
+- 下一步：P5 云端路由 / ASR / TTS / Live2D（可选）。
 
 详见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 

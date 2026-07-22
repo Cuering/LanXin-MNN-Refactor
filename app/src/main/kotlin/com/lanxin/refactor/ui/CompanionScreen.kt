@@ -34,7 +34,7 @@ import java.io.File
 import java.util.UUID
 
 @Composable
-fun CompanionScreen() {
+fun CompanionScreen(onOpenMemory: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val store = remember {
@@ -109,6 +109,7 @@ fun CompanionScreen() {
                     lines.add("[记忆] 当前活跃 $n 条")
                 }
             }) { Text("记忆条数") }
+            Button(onClick = onOpenMemory) { Text("记忆管理") }
         }
         LazyColumn(
             Modifier

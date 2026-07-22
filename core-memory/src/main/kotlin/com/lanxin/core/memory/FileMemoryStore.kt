@@ -12,13 +12,14 @@ import java.io.File
  * JSON 文件持久化记忆。可整文件替换为 Room/ObjectBox 实现而不改上层接口。
  */
 class FileMemoryStore(
-    private val file: File,
-    private val json: Json = Json {
+    private val file: File
+) : MemoryStore {
+
+    private val json = Json {
         ignoreUnknownKeys = true
         prettyPrint = true
         encodeDefaults = true
     }
-) : MemoryStore {
 
     private val mutex = Mutex()
     private val map = LinkedHashMap<String, MemoryItem>()

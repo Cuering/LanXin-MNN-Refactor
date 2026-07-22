@@ -6,8 +6,13 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.lanxin.refactor.ui.CompanionScreen
+import com.lanxin.refactor.ui.MemoryScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -15,7 +20,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    CompanionScreen()
+                    var route by remember { mutableStateOf("companion") }
+                    when (route) {
+                        "memory" -> MemoryScreen(onBack = { route = "companion" })
+                        else -> CompanionScreen(onOpenMemory = { route = "memory" })
+                    }
                 }
             }
         }

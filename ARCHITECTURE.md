@@ -68,12 +68,12 @@ companion → core-memory
 - [x] P3 companion 本地闭环（enrich + generate）
 - [x] 修：`app` 缺 serialization 依赖；根因是 `.kts` 误用 `#` 注释（应用 `//`）
 - [x] 修：JUnit4 测试方法不能有返回值；`deleteRecursively()` 作最后表达式会返回 Boolean
-- [ ] P4 记忆 UI / 导入导出 / 与旧 App 数据兼容
+- [x] P4 记忆 UI（列表/搜索/增删）+ `MemoryImportExport` JSON 导入导出（ignoreUnknownKeys 兼容旧字段）
 - [ ] P5 云端路由 / ASR / TTS / Live2D 迁移
 
 ### 下次接续
 
 1. 先读本文件 + `README.md`
 2. 确认最新 CI 是否 success
-3. 若绿：做 P4（记忆列表 UI、导入导出 JSON）
+3. 若绿：做 P5 或加深记忆（编辑/标签/旧 App 完整 schema 映射）
 4. 避坑：`*.gradle.kts` 禁止 `#` 注释；JUnit4 `@Test` 方法返回类型必须是 Unit
