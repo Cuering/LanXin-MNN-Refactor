@@ -77,7 +77,7 @@ class LocalCompanionSession(
      */
     suspend fun chat(userMessage: String, maxTokens: Int = 256): TurnResult {
         maybeCapturePreference(userMessage)
-        conversationHistory?.add("用户", userMessage)
+        // 先读历史（不含本轮），成功后再追加，避免当前用户消息重复进 prompt
         val historyBlock = conversationHistory?.formatForPrompt()?.let { h ->
             if (h.isNotBlank()) "\n--- 最近对话 ---\n$h\n---\n" else ""
         }.orEmpty()
@@ -89,7 +89,6 @@ class LocalCompanionSession(
         val cloudOk = cloudClient.isConfigured
         val decision = router.decide(localUsable, cloudOk)
         if (decision.backend == ChatBackend.NONE) {
-            conversationHistory?.add("兰儿", "无可用后端")
             return TurnResult(
                 reply = "无可用后端：${decision.reason}；本地=${stateLabel(engine.state)} 云端配置=$cloudOk",
                 engineState = engine.state,
@@ -108,7 +107,6 @@ class LocalCompanionSession(
             }
         }
         if (reply.isNullOrBlank()) {
-            conversationHistory?.add("兰儿", "生成失败")
             return TurnResult(
                 reply = "生成失败：backend=${used.backend} ${used.reason}",
                 engineState = engine.state,
@@ -117,6 +115,7 @@ class LocalCompanionSession(
                 routeReason = used.reason
             )
         }
+        conversationHistory?.add("用户", userMessage)
         conversationHistory?.add("兰儿", reply)
         val ttsResult = if (autoSpeak) ttsEngine.speak(reply) else null
         return TurnResult(
@@ -173,8 +172,12 @@ class LocalCompanionSession(
                 engine.generate(prompt, maxTokens)?.takeIf { it.isNotBlank() }
             }
             ChatBackend.CLOUD -> {
-                // 云端暂不支持历史嵌入（system prompt 过长风险），仅传记忆
-                val r = cloudClient.chat(system, userMessage, maxTokens)
+                // 云端：system 后附历史（有限窗口，避免过长）
+                val cloudSystem = if (historyBlock.isNotBlank()) {
+                    system + "
+" + historyBlock
+                } else system
+                val r = cloudClient.chat(cloudSystem, userMessage, maxTokens)
                 if (r.ok) r.text?.let { ReplySanitizer.clean(it).displayText }.orEmpty().ifBlank { null }
                 else null
             }

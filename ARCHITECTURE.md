@@ -117,6 +117,7 @@ app → voice
 - [x] P7 真麦 `PcmAudioRecorder` + TTS `PcmAudioPlayer` 接 `SherpaTtsEngine` + Live2D WebView 壳（assets 占位）+ CI 校验 MNN/sherpa/live2d 全进 APK
 - [x] P8 TTS 播报时长回调 + Live2D `lipSyncDuring` 嘴型占位动画 + UI 接入
 - [x] P9 `PcmRmsAnalyzer` 真 PCM RMS 驱动嘴型 + `lipSyncFromPcm`（无 PCM 回退占位）+ JVM 单测
+- [x] P9.1 多轮 `ConversationHistory` 滑动窗口接入 chat prompt（成功后写入；失败不污染）+ 单测
 - [x] P10 多轮对话历史：`ConversationHistory` 滑动窗口（可配 maxTurns）+ 本地 prompt 嵌入 + 路由/云端兼容 + 单测
 
 ### 与旧 App 语音差异（防闪退）
