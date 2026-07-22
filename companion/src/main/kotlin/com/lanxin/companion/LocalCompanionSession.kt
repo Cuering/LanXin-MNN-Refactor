@@ -174,9 +174,10 @@ class LocalCompanionSession(
             ChatBackend.CLOUD -> {
                 // 云端：system 后附历史（有限窗口，避免过长）
                 val cloudSystem = if (historyBlock.isNotBlank()) {
-                    system + "
-" + historyBlock
-                } else system
+                    system + "\n" + historyBlock
+                } else {
+                    system
+                }
                 val r = cloudClient.chat(cloudSystem, userMessage, maxTokens)
                 if (r.ok) r.text?.let { ReplySanitizer.clean(it).displayText }.orEmpty().ifBlank { null }
                 else null
