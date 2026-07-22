@@ -192,12 +192,17 @@ fun CompanionScreen(
 
     suspend fun runVoiceTurn(pcm: ByteArray?, hint: String?, label: String) {
         petHost.postExpression("speak")
-        petHost.postMouthOpen(0.4f)
         val r = buildSession().chatFromVoice(hintText = hint, pcm16le = pcm)
         status = stateText(r.engineState)
         val ttsInfo = r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""
         addLine("兰儿[$label/${r.backend}]$ttsInfo: ${r.reply}")
-        petHost.postMouthOpen(0f)
+        // TTS 有时长时驱动嘴型占位动画
+        val dur = r.tts?.audioDurationMs ?: 0L
+        if (dur > 0) {
+            petHost.lipSyncDuring(dur)
+        } else {
+            petHost.postMouthOpen(0f)
+        }
         petHost.postExpression("idle")
     }
 
@@ -351,7 +356,12 @@ fun CompanionScreen(
                         val ttsInfo =
                             r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""
                         addLine("兰儿[${r.backend}/${r.routeReason}]$ttsInfo: ${r.reply}")
-                        petHost.postMouthOpen(0f)
+                        val dur = r.tts?.audioDurationMs ?: 0L
+                        if (dur > 0) {
+                            petHost.lipSyncDuring(dur)
+                        } else {
+                            petHost.postMouthOpen(0f)
+                        }
                         petHost.postExpression("idle")
                     }
                 },

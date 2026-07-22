@@ -132,6 +132,22 @@ class Live2DWebViewHost {
         wv.evaluateJavascript("window.LanXinPet && window.LanXinPet.setMouth($a)", null)
     }
 
+    /**
+     * 播报期间嘴型动画：按 [durationMs] 轮播 mouth open/close 占位。
+     * 调用方在协程中 launch 即可；返回 Job 可 cancel。
+     */
+    suspend fun lipSyncDuring(durationMs: Long) {
+        if (durationMs <= 0) return
+        val steps = (durationMs / 80L).toInt().coerceIn(1, 500)
+        for (i in 0 until steps) {
+            // 模拟说话节律：奇数步开、偶数步合
+            val open = if (i % 3 == 0) 0.8f else if (i % 3 == 1) 0.3f else 0.5f
+            postMouthOpen(open)
+            kotlinx.coroutines.delay(80)
+        }
+        postMouthOpen(0f)
+    }
+
     fun detach() {
         val wv = webView
         webView = null

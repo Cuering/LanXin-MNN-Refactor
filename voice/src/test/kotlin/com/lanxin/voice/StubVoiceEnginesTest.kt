@@ -28,6 +28,9 @@ class StubVoiceEnginesTest {
         assertTrue(r.ok)
         assertEquals(4, r.spokenChars)
         assertEquals("测试播报", tts.lastSpokenText)
+        // 新字段：stub 路径不填 audioDurationMs / pcm
+        assertEquals(0L, r.audioDurationMs)
+        assert(r.pcm16le == null)
     }
 
     @Test

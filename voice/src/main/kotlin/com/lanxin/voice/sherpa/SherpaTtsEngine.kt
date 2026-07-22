@@ -139,7 +139,10 @@ class SherpaTtsEngine(
         TtsResult(
             ok = true,
             spokenChars = t.length,
-            detail = "native:${bridge.currentMode()}:${durationMs}ms;$playDetail"
+            detail = "native:${bridge.currentMode()}:${durationMs}ms;$playDetail",
+            audioDurationMs = durationMs,
+            pcm16le = pcm,
+            pcmSampleRate = audio.sampleRateHz
         )
     }
 

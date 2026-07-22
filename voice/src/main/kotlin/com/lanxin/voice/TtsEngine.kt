@@ -16,7 +16,12 @@ data class TtsResult(
     val ok: Boolean,
     /** stub 不播真实音频，仅返回将要合成的清洗文本长度等 */
     val spokenChars: Int = 0,
-    val detail: String? = null
+    val detail: String? = null,
+    /** 合成音频时长（毫秒）；native 可用时填充，stub 为 0 */
+    val audioDurationMs: Long = 0L,
+    /** 合成 PCM（native 可用时填充，供调用方自行播放或驱动嘴型） */
+    val pcm16le: ByteArray? = null,
+    val pcmSampleRate: Int = 0
 )
 
 /**
