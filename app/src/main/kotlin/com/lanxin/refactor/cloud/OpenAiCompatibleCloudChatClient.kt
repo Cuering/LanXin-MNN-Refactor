@@ -2,6 +2,8 @@ package com.lanxin.refactor.cloud
 
 import com.lanxin.localllm.domain.CloudChatClient
 import com.lanxin.localllm.domain.CloudChatResult
+import com.lanxin.localllm.domain.CloudMessage
+import com.lanxin.localllm.domain.CloudRole
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -16,7 +18,7 @@ import java.nio.charset.StandardCharsets
 
 /**
  * OpenAI Chat Completions 兼容客户端（/v1/chat/completions）。
- * 密钥与 endpoint 由 [CloudConfig] 注入；网络走 [HttpTransport] 便于单测。
+ * 支持多轮 messages；密钥与 endpoint 由 [CloudConfig] 注入。
  */
 class OpenAiCompatibleCloudChatClient(
     private val configProvider: () -> CloudConfig,
@@ -28,32 +30,57 @@ class OpenAiCompatibleCloudChatClient(
     }
 ) : CloudChatClient {
 
+    /** 最近一次请求体（单测可断言 messages 结构） */
+    @Volatile
+    var lastRequestJson: String? = null
+        private set
+
     override val isConfigured: Boolean
         get() {
             val c = configProvider()
             return c.apiKey.isNotBlank() && c.baseUrl.isNotBlank()
         }
 
-    override suspend fun chat(
+    override suspend fun chatMessages(
         systemPrompt: String,
-        userMessage: String,
+        messages: List<CloudMessage>,
         maxTokens: Int
     ): CloudChatResult = withContext(Dispatchers.IO) {
         val cfg = configProvider()
         if (cfg.apiKey.isBlank() || cfg.baseUrl.isBlank()) {
             return@withContext CloudChatResult(false, null, "cloud_not_configured")
         }
+        if (messages.isEmpty()) {
+            return@withContext CloudChatResult(false, null, "empty_messages")
+        }
         val endpoint = cfg.chatCompletionsUrl()
+        val apiMessages = buildList {
+            val sys = systemPrompt.trim()
+            if (sys.isNotEmpty()) {
+                add(ChatMessage(role = CloudRole.SYSTEM, content = sys))
+            }
+            for (m in messages) {
+                val role = when (m.role) {
+                    CloudRole.SYSTEM, CloudRole.USER, CloudRole.ASSISTANT -> m.role
+                    else -> CloudRole.USER
+                }
+                val content = m.content.trim()
+                if (content.isNotEmpty()) {
+                    add(ChatMessage(role = role, content = content))
+                }
+            }
+        }
+        if (apiMessages.none { it.role == CloudRole.USER }) {
+            return@withContext CloudChatResult(false, null, "no_user_message")
+        }
         val body = ChatCompletionRequest(
             model = cfg.model.ifBlank { "gpt-4o-mini" },
-            messages = listOf(
-                ChatMessage(role = "system", content = systemPrompt),
-                ChatMessage(role = "user", content = userMessage)
-            ),
+            messages = apiMessages,
             maxTokens = maxTokens.coerceIn(16, 4096),
             temperature = cfg.temperature
         )
         val payload = json.encodeToString(ChatCompletionRequest.serializer(), body)
+        lastRequestJson = payload
         try {
             val resp = transport.postJson(
                 url = endpoint,
@@ -77,7 +104,11 @@ class OpenAiCompatibleCloudChatClient(
             if (text.isNullOrBlank()) {
                 CloudChatResult(false, null, "empty_completion")
             } else {
-                CloudChatResult(true, text, detail = "openai_compatible")
+                CloudChatResult(
+                    ok = true,
+                    text = text,
+                    detail = "openai_compatible:msgs=${apiMessages.size}"
+                )
             }
         } catch (t: Throwable) {
             CloudChatResult(

@@ -8,6 +8,8 @@ import com.lanxin.localllm.domain.ChatBackend
 import com.lanxin.localllm.domain.ChatRoutePolicy
 import com.lanxin.localllm.domain.ChatRouter
 import com.lanxin.localllm.domain.CloudChatClient
+import com.lanxin.localllm.domain.CloudMessage
+import com.lanxin.localllm.domain.CloudRole
 import com.lanxin.localllm.domain.EngineState
 import com.lanxin.localllm.domain.LocalLlmEngine
 import com.lanxin.localllm.domain.ReplySanitizer
@@ -24,6 +26,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 本地陪伴会话：记忆 enrich + 多轮对话历史（可持久化）+ 本地/云端路由 + 可选 TTS。
+ *
+ * 云端走 [CloudChatClient.chatMessages] 真多轮 messages 数组；
+ * 本地仍把历史格式化进 prompt 文本块。
  *
  * @param conversationHistory 多轮对话历史；传 null 禁用历史
  * @param historyStore 可选落盘；调用 [loadHistory] 后可从上次会话续聊
@@ -98,10 +103,10 @@ class LocalCompanionSession(
     suspend fun chat(userMessage: String, maxTokens: Int = 256): TurnResult {
         loadHistory()
         maybeCapturePreference(userMessage)
-        // 先读历史（不含本轮），成功后再追加，避免当前用户消息重复进 prompt
         val historyBlock = conversationHistory?.formatForPrompt()?.let { h ->
             if (h.isNotBlank()) "\n--- 最近对话 ---\n$h\n---\n" else ""
         }.orEmpty()
+        val cloudMessages = buildCloudMessages(userMessage)
         val system = memoryEnricher.enrich(
             userMessage,
             "$persona\n${ReplySanitizer.NO_THINK_INSTRUCTION}"
@@ -119,12 +124,16 @@ class LocalCompanionSession(
             )
         }
         var used = decision
-        var reply = runBackend(used.backend, system, userMessage, maxTokens, historyBlock)
+        var reply = runBackend(
+            used.backend, system, userMessage, maxTokens, historyBlock, cloudMessages
+        )
         if (reply == null) {
             val fb = router.fallback(used.backend, localUsable, cloudOk)
             if (fb != null) {
                 used = fb
-                reply = runBackend(fb.backend, system, userMessage, maxTokens, historyBlock)
+                reply = runBackend(
+                    fb.backend, system, userMessage, maxTokens, historyBlock, cloudMessages
+                )
             }
         }
         if (reply.isNullOrBlank()) {
@@ -170,6 +179,23 @@ class LocalCompanionSession(
         return chat(asr.text!!, maxTokens)
     }
 
+    /**
+     * 历史 turns（用户/兰儿）→ OpenAI 风格 messages，并追加当前 user。
+     * 未知角色按 user 处理；空 content 跳过。
+     */
+    internal fun buildCloudMessages(currentUser: String): List<CloudMessage> {
+        val prior = conversationHistory?.turns.orEmpty().mapNotNull { t ->
+            val role = when (t.role) {
+                "兰儿", "assistant", CloudRole.ASSISTANT -> CloudRole.ASSISTANT
+                "用户", "user", "哥哥", CloudRole.USER -> CloudRole.USER
+                else -> CloudRole.USER
+            }
+            val c = t.content.trim()
+            if (c.isEmpty()) null else CloudMessage(role, c)
+        }
+        return prior + CloudMessage(CloudRole.USER, currentUser.trim())
+    }
+
     private suspend fun appendHistory(userMessage: String, reply: String) {
         val hist = conversationHistory ?: return
         hist.add("用户", userMessage)
@@ -182,7 +208,8 @@ class LocalCompanionSession(
         system: String,
         userMessage: String,
         maxTokens: Int,
-        historyBlock: String = ""
+        historyBlock: String,
+        cloudMessages: List<CloudMessage>
     ): String? {
         return when (backend) {
             ChatBackend.LOCAL -> {
@@ -199,13 +226,8 @@ class LocalCompanionSession(
                 engine.generate(prompt, maxTokens)?.takeIf { it.isNotBlank() }
             }
             ChatBackend.CLOUD -> {
-                // 云端：system 后附历史（有限窗口，避免过长）
-                val cloudSystem = if (historyBlock.isNotBlank()) {
-                    system + "\n" + historyBlock
-                } else {
-                    system
-                }
-                val r = cloudClient.chat(cloudSystem, userMessage, maxTokens)
+                // 真多轮：system 只放 persona+记忆；历史走 messages 数组
+                val r = cloudClient.chatMessages(system, cloudMessages, maxTokens)
                 if (r.ok) r.text?.let { ReplySanitizer.clean(it).displayText }.orEmpty().ifBlank { null }
                 else null
             }

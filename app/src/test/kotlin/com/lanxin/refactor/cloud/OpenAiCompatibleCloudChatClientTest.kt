@@ -1,5 +1,7 @@
 package com.lanxin.refactor.cloud
 
+import com.lanxin.localllm.domain.CloudMessage
+import com.lanxin.localllm.domain.CloudRole
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -38,6 +40,62 @@ class OpenAiCompatibleCloudChatClientTest {
         val r = client.chat("sys", "hi", 64)
         assertTrue(r.ok)
         assertEquals("你好哥哥", r.text)
+    }
+
+    @Test
+    fun multiTurn_messagesArrayInRequestBody() = runBlocking {
+        var capturedBody = ""
+        val fake = HttpTransport { _, _, body, _, _ ->
+            capturedBody = body
+            HttpResponse(
+                200,
+                """{"choices":[{"message":{"role":"assistant","content":"记得草莓"}}]}"""
+            )
+        }
+        val client = OpenAiCompatibleCloudChatClient(
+            configProvider = {
+                CloudConfig(apiKey = "sk-test", baseUrl = "https://example.com/v1", model = "m")
+            },
+            transport = fake
+        )
+        val r = client.chatMessages(
+            systemPrompt = "你是兰儿",
+            messages = listOf(
+                CloudMessage(CloudRole.USER, "我喜欢草莓"),
+                CloudMessage(CloudRole.ASSISTANT, "好呀"),
+                CloudMessage(CloudRole.USER, "还记得吗")
+            ),
+            maxTokens = 64
+        )
+        assertTrue(r.ok)
+        assertEquals("记得草莓", r.text)
+        assertTrue(capturedBody.contains(""""role":"system""""))
+        assertTrue(capturedBody.contains("你是兰儿"))
+        assertTrue(capturedBody.contains("我喜欢草莓"))
+        assertTrue(capturedBody.contains(""""role":"assistant""""))
+        assertTrue(capturedBody.contains("还记得吗"))
+        // system + 3 turns
+        assertTrue(client.lastRequestJson!!.contains("messages"))
+        assertTrue(r.detail!!.contains("msgs=4"))
+    }
+
+    @Test
+    fun chat_compat_stillWorks() = runBlocking {
+        val fake = HttpTransport { _, _, body, _, _ ->
+            assertTrue(body.contains(""""role":"user""""))
+            assertTrue(body.contains("hello"))
+            HttpResponse(
+                200,
+                """{"choices":[{"message":{"role":"assistant","content":"ok"}}]}"""
+            )
+        }
+        val client = OpenAiCompatibleCloudChatClient(
+            configProvider = { CloudConfig(apiKey = "k", baseUrl = "https://example.com/v1") },
+            transport = fake
+        )
+        val r = client.chat("sys", "hello")
+        assertTrue(r.ok)
+        assertEquals("ok", r.text)
     }
 
     @Test
