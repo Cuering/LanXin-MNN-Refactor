@@ -42,10 +42,10 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
         jniLibs {
-            pickFirsts += setOf(
+            pickFirsts.addAll(listOf(
                 "lib/arm64-v8a/libc++_shared.so",
                 "lib/armeabi-v7a/libc++_shared.so"
-            )
+            ))
         }
     }
     testOptions { unitTests.isReturnDefaultValues = true }
