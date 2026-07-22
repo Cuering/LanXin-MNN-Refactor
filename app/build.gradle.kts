@@ -43,7 +43,7 @@ android {
 //        }
 //
 //    }
-    testOptions { unitTests.isReturnDefaultValues = true }
+//    testOptions { unitTests.isReturnDefaultValues = true }
 }
 
 dependencies {
