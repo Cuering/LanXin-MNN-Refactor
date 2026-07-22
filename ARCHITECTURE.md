@@ -66,5 +66,6 @@ companion → core-memory
 - [x] P1 domain 状态机 + Sanitizer
 - [x] P2 core-memory 文件持久化 + Decide + 轻量记取
 - [x] P3 companion 本地闭环（enrich + generate）
+- [ ] **阻塞**：`app` 模块缺少 `kotlinx.serialization.json` 依赖导致编译失败，已定位。
 - [ ] P4 记忆 UI / 导入导出 / 与旧 App 数据兼容
 - [ ] P5 云端路由 / ASR / TTS / Live2D 迁移
