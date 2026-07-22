@@ -196,10 +196,14 @@ fun CompanionScreen(
         status = stateText(r.engineState)
         val ttsInfo = r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""
         addLine("兰儿[$label/${r.backend}]$ttsInfo: ${r.reply}")
-        // TTS 有时长时驱动嘴型占位动画
-        val dur = r.tts?.audioDurationMs ?: 0L
-        if (dur > 0) {
-            petHost.lipSyncDuring(dur)
+        // P9：优先 PCM RMS 驱动嘴型；无 PCM 时按时长占位
+        val tts = r.tts
+        if (tts != null && tts.ok) {
+            petHost.lipSyncFromPcm(
+                pcm16le = tts.pcm16le,
+                sampleRateHz = tts.pcmSampleRate,
+                durationMsFallback = tts.audioDurationMs
+            )
         } else {
             petHost.postMouthOpen(0f)
         }
@@ -356,9 +360,13 @@ fun CompanionScreen(
                         val ttsInfo =
                             r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""
                         addLine("兰儿[${r.backend}/${r.routeReason}]$ttsInfo: ${r.reply}")
-                        val dur = r.tts?.audioDurationMs ?: 0L
-                        if (dur > 0) {
-                            petHost.lipSyncDuring(dur)
+                        val ttsR = r.tts
+                        if (ttsR != null && ttsR.ok) {
+                            petHost.lipSyncFromPcm(
+                                pcm16le = ttsR.pcm16le,
+                                sampleRateHz = ttsR.pcmSampleRate,
+                                durationMsFallback = ttsR.audioDurationMs
+                            )
                         } else {
                             petHost.postMouthOpen(0f)
                         }

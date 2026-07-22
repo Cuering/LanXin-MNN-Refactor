@@ -116,6 +116,7 @@ app → voice
 - [x] P6 sherpa 真 ASR/TTS：AAR 构建期下载 + Bridge + Engine（失败不伪装 READY）+ UI 加载语音 + CI 校验 so
 - [x] P7 真麦 `PcmAudioRecorder` + TTS `PcmAudioPlayer` 接 `SherpaTtsEngine` + Live2D WebView 壳（assets 占位）+ CI 校验 MNN/sherpa/live2d 全进 APK
 - [x] P8 TTS 播报时长回调 + Live2D `lipSyncDuring` 嘴型占位动画 + UI 接入
+- [x] P9 `PcmRmsAnalyzer` 真 PCM RMS 驱动嘴型 + `lipSyncFromPcm`（无 PCM 回退占位）+ JVM 单测
 
 ### 与旧 App 语音差异（防闪退）
 

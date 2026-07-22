@@ -22,7 +22,7 @@ import com.lanxin.voice.VoiceEngineState
 import java.util.UUID
 
 /**
- * 本地陪伴会话：记忆 enrich + 可选轻量记取 + 本地/云端路由 + 可选 TTS。
+ * 本地陪伴会话：记忆 enrich + 多轮对话历史 + 本地/云端路由 + 可选 TTS。
  */
 class LocalCompanionSession(
     private val engine: LocalLlmEngine,
@@ -33,7 +33,9 @@ class LocalCompanionSession(
     private val cloudClient: CloudChatClient = UnconfiguredCloudChatClient(),
     private val asrEngine: AsrEngine = StubAsrEngine(),
     private val ttsEngine: TtsEngine = StubTtsEngine(),
-    private val autoSpeak: Boolean = true
+    private val autoSpeak: Boolean = true,
+    /** 多轮对话历史；传 null 禁用历史 */
+    private val conversationHistory: ConversationHistory? = ConversationHistory()
 ) {
     private val router = ChatRouter(routePolicy)
 

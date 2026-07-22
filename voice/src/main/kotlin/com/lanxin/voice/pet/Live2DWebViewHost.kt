@@ -133,17 +133,57 @@ class Live2DWebViewHost {
     }
 
     /**
-     * 播报期间嘴型动画：按 [durationMs] 轮播 mouth open/close 占位。
-     * 调用方在协程中 launch 即可；返回 Job 可 cancel。
+     * 播报期间嘴型动画（占位）：按 [durationMs] 轮播 mouth open/close。
+     * 无 PCM 时使用；有 PCM 时优先 [lipSyncFromPcm]。
      */
     suspend fun lipSyncDuring(durationMs: Long) {
         if (durationMs <= 0) return
         val steps = (durationMs / 80L).toInt().coerceIn(1, 500)
         for (i in 0 until steps) {
-            // 模拟说话节律：奇数步开、偶数步合
             val open = if (i % 3 == 0) 0.8f else if (i % 3 == 1) 0.3f else 0.5f
             postMouthOpen(open)
             kotlinx.coroutines.delay(80)
+        }
+        postMouthOpen(0f)
+    }
+
+    /**
+     * 用 TTS PCM 能量驱动嘴型（P9）。
+     * - 有有效 PCM：按帧 RMS 推 [postMouthOpen]
+     * - 无 PCM / 全静音：回退 [lipSyncDuring]
+     *
+     * @param pcm16le little-endian signed 16-bit mono，可 null
+     * @param sampleRateHz 采样率
+     * @param durationMsFallback 无 PCM 时的占位时长
+     * @param frameMs RMS 帧长，默认 40ms
+     */
+    suspend fun lipSyncFromPcm(
+        pcm16le: ByteArray?,
+        sampleRateHz: Int,
+        durationMsFallback: Long = 0L,
+        frameMs: Int = com.lanxin.voice.PcmRmsAnalyzer.DEFAULT_FRAME_MS
+    ) {
+        val pcm = pcm16le
+        if (pcm == null || pcm.isEmpty() || sampleRateHz <= 0) {
+            lipSyncDuring(durationMsFallback)
+            return
+        }
+        val frames = com.lanxin.voice.PcmRmsAnalyzer.analyze(pcm, sampleRateHz, frameMs)
+        if (frames.isEmpty() || frames.all { it < 1e-4f }) {
+            val dur = if (durationMsFallback > 0) {
+                durationMsFallback
+            } else {
+                com.lanxin.voice.PcmRmsAnalyzer.durationMs(pcm, sampleRateHz)
+            }
+            lipSyncDuring(dur)
+            return
+        }
+        val step = frameMs.toLong().coerceAtLeast(1L)
+        for (level in frames) {
+            // 弱能量也给一点开口，避免完全闭嘴看起来卡顿
+            val open = if (level < 0.05f) 0f else (0.15f + 0.85f * level).coerceIn(0f, 1f)
+            postMouthOpen(open)
+            kotlinx.coroutines.delay(step)
         }
         postMouthOpen(0f)
     }
