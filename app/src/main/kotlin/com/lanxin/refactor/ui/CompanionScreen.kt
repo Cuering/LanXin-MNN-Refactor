@@ -49,6 +49,7 @@ import com.lanxin.localllm.domain.StubCloudChatClient
 import com.lanxin.localllm.domain.UnconfiguredCloudChatClient
 import com.lanxin.refactor.cloud.CloudConfig
 import com.lanxin.refactor.cloud.OpenAiCompatibleCloudChatClient
+import com.lanxin.refactor.paths.LanXinPaths
 import com.lanxin.refactor.settings.CloudSettingsStore
 import com.lanxin.voice.PcmAudioRecorder
 import com.lanxin.voice.VoiceModelPaths
@@ -99,8 +100,15 @@ fun CompanionScreen(
         lines.add(s)
     }
 
+    // 与旧 LanXin-Android 对齐：优先 /sdcard/LanXin/，回退 app 外存私有目录
     val filesBase = remember {
-        context.getExternalFilesDir(null) ?: context.filesDir
+        LanXinPaths.resolveBaseDir(context)
+    }
+    val lanXinDir = remember(filesBase) {
+        File(filesBase, LanXinPaths.ROOT_DIR).also {
+            // 尝试建目录骨架（公共存储可能失败，静默忽略）
+            LanXinPaths.ensureStructure(filesBase)
+        }
     }
     var asrPath by remember {
         mutableStateOf(
@@ -115,7 +123,7 @@ fun CompanionScreen(
         )
     }
     var modelPath by remember {
-        mutableStateOf(File(filesBase, "models/local-llm").absolutePath)
+        mutableStateOf(LanXinPaths.resolveLocalLlmPath(context).absolutePath)
     }
     var input by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("未加载") }
@@ -247,6 +255,9 @@ fun CompanionScreen(
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(status)
+        Text(
+            "资源根=${lanXinDir.absolutePath}"
+        )
         Text(
             "路由=$policy 云=$cloudMode cfg=$cloudConfigured | " +
                 "ASR=${asr.state.shortLabel} TTS=${tts.state.shortLabel} | 历史=${session.historyTurns.size}"

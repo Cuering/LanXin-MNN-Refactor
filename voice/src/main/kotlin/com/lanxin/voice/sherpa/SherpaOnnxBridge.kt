@@ -19,7 +19,8 @@ import java.nio.ByteOrder
  * Sherpa-ONNX JNI 接入点（ASR）。
  *
  * - 运行时 so 由官方 AAR 打进 APK
- * - ASR 模型外置：设备 /sdcard/Android/data/.../files/models/asr/<model-dir>/
+ * - ASR 模型外置：`/sdcard/LanXin/asr/<model-dir>/`（与旧 App 一致）
+ * - 兼容回退：`Android/data/.../files/LanXin/asr/` 或旧 `models/asr/`
  * - JVM 单测：无 so 时 isNativeAvailable() 为 false；loadModel/transcribe 安全降级
  *
  * 支持目录布局：

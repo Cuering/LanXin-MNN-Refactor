@@ -54,18 +54,27 @@ app → voice
 
 ## 模型路径约定
 
-设备外置（不进 git / 不进 APK）：
+与旧 **LanXin-Android** 对齐：用户可见根目录 `LanXin/`（公共存储优先）。
 
 ```
-/sdcard/Android/data/<pkg>/files/models/local-llm/
-  config.json
-  llm.mnn
-  llm.mnn.weight
-  ...
+/sdcard/LanXin/                          # 优先（文件管理器可见）
+  models/local-llm/light/                # MNN LLM（llm.mnn + weight + config.json）
+  asr/<model-name>/                      # sherpa ASR
+  tts/<model-name>/                      # sherpa TTS
+  live2d/                                # Live2D
+  backgrounds/                           # 桌宠背景
+  music/
+
+# 公共目录不可写 / 无权限时回退：
+/sdcard/Android/data/<pkg>/files/LanXin/   # 同上结构
 ```
+
+兼容识别旧路径：`files/models/local-llm`、`files/models/asr|tts`、`debug-assets/`。
 
 `config.json` 中 `backend_type` 建议：`opencl`（失败再 `cpu`）。  
 引擎层记录实际 backend 与 load 错误，禁止“看起来 READY 其实 stub”。
+
+路径解析入口：`com.lanxin.refactor.paths.LanXinPaths` + `VoiceModelPaths`。
 
 ## P5 设计要点
 
@@ -91,7 +100,7 @@ app → voice
   - `SherpaAsrEngine` / `SherpaTtsEngine`：失败 → `NativeMissing` / `LoadFailed`
   - 无 so 时 `hintText` 可旁路联调，状态仍诚实
   - AAR：`:voice:downloadSherpaOnnxAar` → `voice/libs/*.aar`（gitignore）
-  - 模型外置：`files/models/asr|tts/`（`VoiceModelPaths`）
+  - 模型外置：`/sdcard/LanXin/asr|tts/`（`VoiceModelPaths` / `LanXinPaths`）
 - `PetDisplayState` + `PlaceholderPetDisplay`：Live2D 占位，不装 WebView/moc3
 
 ### companion 接线

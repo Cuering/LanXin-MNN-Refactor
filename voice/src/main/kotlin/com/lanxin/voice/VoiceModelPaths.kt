@@ -3,31 +3,44 @@ package com.lanxin.voice
 import java.io.File
 
 /**
- * 外置语音模型默认路径约定（不进 git / 不进 APK）。
+ * 外置语音模型路径解析（LanXin 约定）。
  *
- * 目录布局（建议）：
+ * 目录布局：
  * ```
- * <filesDir>/
- *   models/
- *     local-llm/          # MNN LLM
- *     asr/<model-name>/   # sherpa ASR（encoder/decoder/joiner + tokens 或 paraformer）
- *     tts/<model-name>/   # sherpa TTS（matcha/vits）
+ * <baseDir>/LanXin/
+ *   asr/<model-name>/   # sherpa ASR
+ *   tts/<model-name>/   # sherpa TTS
  * ```
+ *
+ * 兼容旧 `models/asr` / `models/tts` 布局。
  */
 object VoiceModelPaths {
 
-    const val ASR_SUBDIR = "models/asr"
-    const val TTS_SUBDIR = "models/tts"
+    const val LANXIN_ROOT = "LanXin"
 
-    /** 在 baseDir 下解析 ASR 模型目录；若只有一层子目录且唯一则自动选中。 */
+    const val ASR_SUBDIR = "$LANXIN_ROOT/asr"
+    const val TTS_SUBDIR = "$LANXIN_ROOT/tts"
+
+    // 兼容旧路径
+    private const val LEGACY_ASR_SUBDIR = "models/asr"
+    private const val LEGACY_TTS_SUBDIR = "models/tts"
+
+    /** 在 baseDir 下解析 ASR 模型目录；优先 LanXin/asr/，回退 models/asr/ */
     fun resolveAsrDir(baseDir: File, preferredName: String? = null): String? {
-        val root = File(baseDir, ASR_SUBDIR)
-        return resolveModelDir(root, preferredName)
+        val lanXinRoot = File(baseDir, ASR_SUBDIR)
+        val resolved = resolveModelDir(lanXinRoot, preferredName)
+        if (resolved != null) return resolved
+        // fallback legacy
+        val legacyRoot = File(baseDir, LEGACY_ASR_SUBDIR)
+        return resolveModelDir(legacyRoot, preferredName)
     }
 
     fun resolveTtsDir(baseDir: File, preferredName: String? = null): String? {
-        val root = File(baseDir, TTS_SUBDIR)
-        return resolveModelDir(root, preferredName)
+        val lanXinRoot = File(baseDir, TTS_SUBDIR)
+        val resolved = resolveModelDir(lanXinRoot, preferredName)
+        if (resolved != null) return resolved
+        val legacyRoot = File(baseDir, LEGACY_TTS_SUBDIR)
+        return resolveModelDir(legacyRoot, preferredName)
     }
 
     fun defaultAsrDir(baseDir: File): String = File(baseDir, ASR_SUBDIR).absolutePath

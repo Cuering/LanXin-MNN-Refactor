@@ -50,14 +50,32 @@
 
 ## 设备模型路径
 
+与旧 App 一致，优先用户可见目录：
+
 ```
-Android/data/com.lanxin.refactor/files/
-  models/local-llm/     # MNN LLM
-  models/asr/<name>/    # sherpa ASR（zipformer 流式或 paraformer）
-  models/tts/<name>/    # sherpa TTS（matcha/vits，matcha 需 vocoder）
+/sdcard/LanXin/
+  models/local-llm/light/   # MNN LLM（config.json + llm.mnn + llm.mnn.weight）
+  asr/<name>/               # sherpa ASR（zipformer 流式或 paraformer）
+  tts/<name>/               # sherpa TTS（matcha/vits，matcha 需 vocoder）
+  live2d/                   # Live2D
+  backgrounds/  music/
 ```
 
-默认约定见 `VoiceModelPaths`。
+公共存储不可写时回退：
+
+```
+Android/data/com.lanxin.refactor/files/LanXin/   # 同上结构
+```
+
+仍兼容旧 `files/models/local-llm|asr|tts`。解析见 `LanXinPaths` / `VoiceModelPaths`。
+
+### 放模型示例（adb）
+
+```bash
+# 公共目录（推荐，与旧 App 同路径可共用）
+adb shell mkdir -p /sdcard/LanXin/models/local-llm/light
+adb push config.json llm.mnn llm.mnn.weight /sdcard/LanXin/models/local-llm/light/
+```
 
 ## App 内使用
 
