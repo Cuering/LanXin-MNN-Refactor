@@ -70,6 +70,7 @@ import com.lanxin.refactor.cloud.CloudConfig
 import com.lanxin.refactor.cloud.OpenAiCompatibleCloudChatClient
 import com.lanxin.refactor.paths.LanXinPaths
 import com.lanxin.refactor.settings.CloudSettingsStore
+import com.lanxin.localllm.domain.ReplySanitizer
 import com.lanxin.voice.PcmAudioRecorder
 import com.lanxin.voice.VadAutoStopRecorder
 import com.lanxin.voice.VoiceModelPaths
@@ -218,12 +219,23 @@ fun CompanionScreen(
         return s
     }
 
+    /** TTS 未 READY 时按当前路径再 load 一次（模型在手机 LanXin/tts/）。 */
+    suspend fun ensureTtsReady(): Boolean {
+        if (tts.state.isUsable) return true
+        addLine("[TTS] \u672a READY\uff0c\u52a0\u8f7d $ttsPath")
+        val st = tts.load(ttsPath)
+        voiceStatus = "ASR=${asr.state.shortLabel} TTS=${st.shortLabel}"
+        addLine("[TTS] ${st.shortLabel} native=${tts.isUsingNative}")
+        return st.isUsable
+    }
+
     suspend fun runVoiceTurn(pcm: ByteArray?, hint: String?, label: String) {
         ensureLocalReady()
+        ensureTtsReady()
         petHost.postExpression("speak")
         val r = session.chatFromVoice(hintText = hint, pcm16le = pcm)
         status = stateText(r.engineState)
-        val ttsInfo = r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""
+        val ttsInfo = r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: " tts=skipped"
         addLine("\u5170\u513f[$label/${r.backend}]$ttsInfo: ${r.reply}")
         // P9：优先 PCM RMS \u9a71\u52a8\u5634\u578b\uff1b\u65e0 PCM \u65f6\u6309\u65f6\u957f\u5360\u4f4d
         val ttsR = r.tts
@@ -343,9 +355,9 @@ fun CompanionScreen(
         val ttsState = tts.load(ttsPath)
         voiceStatus = "ASR=${asrState.shortLabel} TTS=${ttsState.shortLabel}"
         addLine("[\u5f15\u64ce] MNN=\u5df2\u6253\u5305 JNI | Sherpa ASR/TTS=\u5df2\u6253\u5305 so")
-        addLine("[\u8bed\u97f3] $voiceStatus")
+        addLine("[\u8bed\u97f3] $voiceStatus nativeAsr=${asr.isUsingNative} nativeTts=${tts.isUsingNative}")
         addLine("[\u8bed\u97f3\u8def\u5f84] asr=$asrPath")
-        addLine("[\u8bed\u97f3\u8def\u5f84] tts=$ttsPath")
+        addLine("[\u8bed\u97f3\u8def\u5f84] tts=$ttsPath looks=${VoiceModelPaths.looksLikeTtsModel(java.io.File(ttsPath))}")
         if (!hasMicPermission()) {
             addLine("[\u9ea6] \u672a\u6388\u6743\uff0c\u70b9\u300c\u8981\u9ea6\u6743\u300d\u7533\u8bf7")
         } else {
@@ -534,6 +546,35 @@ fun CompanionScreen(
                                 modifier = Modifier.weight(1f)
                             ) { Text("\u52a0\u8f7d\u8bed\u97f3") }
                         }
+                        Spacer(Modifier.height(4.dp))
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    ensureTtsReady()
+                                    val sample = input.trim().ifBlank {
+                                        "\u54e5\u54e5\u597d\uff0c\u6211\u662f\u5170\u513f\u3002\u8fd9\u662f\u8bed\u97f3\u56de\u590d\u8bd5\u542c\u3002"
+                                    }
+                                    val speech = ReplySanitizer.forSpeech(sample)
+                                    addLine("[\u8bd5\u542c] \u64ad\u62a5: $speech")
+                                    petHost.postExpression("speak")
+                                    val r = tts.speak(speech)
+                                    addLine(
+                                        "[\u8bd5\u542c] ok=${r.ok} detail=${r.detail} " +
+                                            "chars=${r.spokenChars} dur=${r.audioDurationMs}ms " +
+                                            "native=${tts.isUsingNative} state=${tts.state.shortLabel}"
+                                    )
+                                    if (r.ok) {
+                                        petHost.lipSyncFromPcm(
+                                            pcm16le = r.pcm16le,
+                                            sampleRateHz = r.pcmSampleRate,
+                                            durationMsFallback = r.audioDurationMs
+                                        )
+                                    }
+                                    petHost.postExpression("idle")
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("\u8bd5\u542c TTS\uff08\u7528\u624b\u673a\u5185 Sherpa \u6a21\u578b\uff09") }
                     }
                 }
 
@@ -649,10 +690,11 @@ fun CompanionScreen(
                                 addLine("\u54e5\u54e5: $msg")
                                 scope.launch {
                                     ensureLocalReady()
+                                    ensureTtsReady()
                                     petHost.postExpression("speak")
                                     val r = session.chat(msg)
                                     status = stateText(r.engineState)
-                                    val ttsInfo = r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""
+                                    val ttsInfo = r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: " tts=skipped"
                                     addLine("\u5170\u513f[${r.backend}/${r.routeReason}]$ttsInfo: ${r.reply}")
                                     val ttsR = r.tts
                                     if (ttsR != null && ttsR.ok) {
