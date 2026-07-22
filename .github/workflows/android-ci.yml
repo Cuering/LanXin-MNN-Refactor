@@ -43,11 +43,23 @@ jobs:
           test -f local-llm-core/src/main/jniLibs/armeabi-v7a/libMNN.so
           ls -lh local-llm-core/src/main/jniLibs/arm64-v8a/ | head -20
 
+      - name: Download sherpa-onnx AAR
+        run: |
+          ./gradlew :voice:downloadSherpaOnnxAar --no-daemon --stacktrace
+          test -f voice/libs/sherpa-onnx-static-link-onnxruntime-1.13.4.aar
+          ls -lh voice/libs/
+
       - name: Unit tests
         run: ./gradlew test --no-daemon --stacktrace
 
       - name: Assemble debug
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Verify sherpa so in APK
+        run: |
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          unzip -l "$APK" | grep -E 'libsherpa-onnx-jni|libonnxruntime' | head -20
+          unzip -l "$APK" | grep -q 'libsherpa-onnx-jni.so'
 
       - name: Upload APK
         if: success()

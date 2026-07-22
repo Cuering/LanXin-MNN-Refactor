@@ -42,13 +42,22 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
         jniLibs {
+            // MNN + sherpa-onnx 可能各带 c++_shared / onnxruntime
             pickFirsts += setOf(
                 "lib/arm64-v8a/libc++_shared.so",
-                "lib/armeabi-v7a/libc++_shared.so"
+                "lib/armeabi-v7a/libc++_shared.so",
+                "lib/arm64-v8a/libonnxruntime.so",
+                "lib/armeabi-v7a/libonnxruntime.so"
             )
         }
     }
     testOptions { unitTests.isReturnDefaultValues = true }
+}
+
+// sherpa AAR 由 :voice 模块 downloadSherpaOnnxAar 提供（api files），app 不重复下载
+// 确保 assemble 前 voice 已 preBuild
+tasks.matching { it.name == "preBuild" }.configureEach {
+    dependsOn(":voice:downloadSherpaOnnxAar")
 }
 
 dependencies {
@@ -56,6 +65,7 @@ dependencies {
     implementation(project(":local-llm-domain"))
     implementation(project(":core-memory"))
     implementation(project(":local-llm-core"))
+    // voice 以 api 传递 sherpa-onnx AAR（含 so）
     implementation(project(":voice"))
 
     implementation(libs.androidx.core.ktx)
@@ -70,7 +80,6 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.datastore)
     implementation(libs.kotlinx.coroutines.android)
-    // FileMemoryStore Json type is visible through default params
     implementation(libs.kotlinx.serialization.json)
 
     debugImplementation(libs.androidx.ui.tooling)

@@ -1,0 +1,21 @@
+sherpa-onnx
+==========
+
+Project: sherpa-onnx
+Upstream: https://github.com/k2-fsa/sherpa-onnx
+License: Apache-2.0 (see upstream)
+
+Usage in LanXin-MNN-Refactor:
+- Android AAR (static-link onnxruntime) is downloaded at build time into voice/libs/
+  (not committed to git). Task: :voice:downloadSherpaOnnxAar
+- Default version: 1.13.4
+  artifact: sherpa-onnx-static-link-onnxruntime-1.13.4.aar
+- Override: SHERPA_ONNX_AAR (local path) or SHERPA_ONNX_AAR_URL
+- ASR/TTS model files are external on device under:
+  Android/data/com.lanxin.refactor/files/models/asr/
+  Android/data/com.lanxin.refactor/files/models/tts/
+  (not packaged in APK, not in git)
+
+JNI library name: libsherpa-onnx-jni.so
+Kotlin package (AAR): com.k2fsa.sherpa.onnx
+LanXin wrapper package: com.lanxin.voice.sherpa

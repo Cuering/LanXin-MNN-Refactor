@@ -11,6 +11,8 @@ local.properties
 !third_party/**
 app/libs/*.zip
 app/libs/*.aar
+voice/libs/*.aar
+voice/libs/*.zip
 **/jniLibs/**/*.so
 local-llm-core/libs/*.zip
 local-llm-core/src/main/jniLibs/

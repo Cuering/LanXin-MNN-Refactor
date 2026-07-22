@@ -10,41 +10,52 @@
 | `local-llm-domain` | `LocalLlmEngine` / 状态机 / `ReplySanitizer` / `ChatRouter` / `CloudChatClient` |
 | `core-memory` | 记忆存储 + prompt 注入 |
 | `companion` | 陪伴会话编排（记忆 + 路由 + 可选语音） |
-| `voice` | ASR / TTS / PetDisplay 接口与显式 Stub |
+| `voice` | ASR/TTS 接口、Stub、**sherpa 真引擎**（AAR 构建期下载） |
 | `app` | 壳 UI |
 
 ## 进度概览
 
-- P0–P5 完成：MNN、记忆、companion、路由、voice stub、记忆 UI。
-- **P5.1**：OpenAI 兼容云端客户端 + DataStore 密钥设置 + 探测连通。
-- 已修：`.kts` 禁止 `#` 注释；JUnit4 `@Test` 返回值须为 Unit。
-- 下一步（可选）：sherpa native、Live2D WebView。
+- P0–P5：MNN、记忆、companion、路由、voice stub、记忆 UI
+- P5.1：OpenAI 兼容云端 + DataStore 设置
+- **P6：sherpa-onnx 真 ASR/TTS**（失败不伪装 READY，避免旧 App 假就绪闪退路径）
 
 详见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 
-## 构建（GitHub Actions / 本地）
+## 构建
 
 ```bash
 ./gradlew :local-llm-core:downloadMnnNative
+./gradlew :voice:downloadSherpaOnnxAar
 ./gradlew :app:assembleDebug
 ./gradlew test
 ```
 
 环境变量（可选）：
 
-- `MNN_NATIVE_ZIP`：本地 zip 路径
-- `MNN_NATIVE_URL`：自定义下载 URL
+| 变量 | 含义 |
+|------|------|
+| `MNN_NATIVE_ZIP` / `MNN_NATIVE_URL` | MNN 预编译 zip |
+| `SHERPA_ONNX_AAR` / `SHERPA_ONNX_AAR_URL` | sherpa Android AAR |
 
-## 模型
+## 设备模型路径
 
-将 MNN LLM 模型放到设备：
+```
+Android/data/com.lanxin.refactor/files/
+  models/local-llm/     # MNN LLM
+  models/asr/<name>/    # sherpa ASR（zipformer 流式或 paraformer）
+  models/tts/<name>/    # sherpa TTS（matcha/vits，matcha 需 vocoder）
+```
 
-`Android/data/com.lanxin.refactor/files/models/local-llm/`
+ASR 示例（流式中文小模型）：`scripts` 可参考旧仓 `download-debug-asr.sh`  
+默认约定见 `VoiceModelPaths`。
 
-## P5 使用提示（App 内）
+## App 内使用
 
-- 路由芯片：本地优先 / 仅本地 / 云优先
-- 云端芯片：云关 / 云stub / 云真实（真实走 DataStore 中的 OpenAI 兼容配置）
-- 「云设置」：Base URL / API Key / Model，可探测连通
-- 「语音hint」：把输入框文本当 ASR 识别结果走 `chatFromVoice`
-- 状态行会显示 ASR/TTS 的 `STUB` / `READY`，禁止静默失败
+- **加载语音**：按外置路径 load ASR/TTS；状态行显示 `STUB` / `NATIVE_MISSING` / `READY(sherpa:…)`
+- **语音hint**：输入框文本当识别结果（无麦 / 无 so 可联调）
+- 路由：本地优先 / 仅本地 / 云优先；云设置页配 OpenAI 兼容 API
+
+## 与旧语音模块
+
+旧 App 在 native 失败时仍标 READY，会话/UI 易走错路径甚至闪退。  
+本仓库：**失败状态诚实**；联调只用 hint 旁路，不把 stub 当真机。

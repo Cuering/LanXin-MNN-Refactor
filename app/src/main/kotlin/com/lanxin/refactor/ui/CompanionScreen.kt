@@ -20,7 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.Modifier.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.lanxin.companion.LocalCompanionSession
@@ -37,8 +37,9 @@ import com.lanxin.localllm.domain.UnconfiguredCloudChatClient
 import com.lanxin.refactor.cloud.CloudConfig
 import com.lanxin.refactor.cloud.OpenAiCompatibleCloudChatClient
 import com.lanxin.refactor.settings.CloudSettingsStore
-import com.lanxin.voice.StubAsrEngine
-import com.lanxin.voice.StubTtsEngine
+import com.lanxin.voice.VoiceModelPaths
+import com.lanxin.voice.sherpa.SherpaAsrEngine
+import com.lanxin.voice.sherpa.SherpaTtsEngine
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
@@ -63,9 +64,28 @@ fun CompanionScreen(
     var policy by remember { mutableStateOf(ChatRoutePolicy.PREFER_LOCAL) }
     // none | stub | real
     var cloudMode by remember { mutableStateOf("none") }
-    val asr = remember { StubAsrEngine() }
-    val tts = remember { StubTtsEngine(simulateReady = false) }
+
+    // 真 sherpa 引擎（无 so / 无模型时状态诚实，不伪装 READY）
+    val asr = remember { SherpaAsrEngine() }
+    val tts = remember { SherpaTtsEngine() }
     var cloudConfigured by remember { mutableStateOf(false) }
+    var voiceStatus by remember { mutableStateOf("语音未加载") }
+
+    val filesBase = remember {
+        context.getExternalFilesDir(null) ?: context.filesDir
+    }
+    var asrPath by remember {
+        mutableStateOf(
+            VoiceModelPaths.resolveAsrDir(filesBase)
+                ?: VoiceModelPaths.defaultAsrDir(filesBase)
+        )
+    }
+    var ttsPath by remember {
+        mutableStateOf(
+            VoiceModelPaths.resolveTtsDir(filesBase)
+                ?: VoiceModelPaths.defaultTtsDir(filesBase)
+        )
+    }
 
     fun resolveCloud(): CloudChatClient = when (cloudMode) {
         "stub" -> StubCloudChatClient()
@@ -86,7 +106,7 @@ fun CompanionScreen(
 
     var modelPath by remember {
         mutableStateOf(
-            File(context.getExternalFilesDir(null), "models/local-llm").absolutePath
+            File(filesBase, "models/local-llm").absolutePath
         )
     }
     var input by remember { mutableStateOf("") }
@@ -104,17 +124,17 @@ fun CompanionScreen(
                 )
             )
         }
-        asr.load(null)
-        tts.load(null)
+        // 启动时尝试加载外置 ASR/TTS；失败不崩，状态可见
+        val asrState = asr.load(asrPath)
+        val ttsState = tts.load(ttsPath)
+        voiceStatus = "ASR=${asrState.shortLabel} TTS=${ttsState.shortLabel}"
+        lines.add("[语音] $voiceStatus")
+        lines.add("[语音路径] asr=$asrPath")
+        lines.add("[语音路径] tts=$ttsPath")
         cloudSettings.configFlow.collect { cfg ->
             cloudConfigRef.set(cfg)
             cloudConfigured = cfg.apiKey.isNotBlank() && cfg.baseUrl.isNotBlank()
         }
-    }
-
-    LaunchedEffect(Unit) {
-        lines.add("[语音] ASR=${asr.state.shortLabel} TTS=${tts.state.shortLabel}")
-        lines.add("[云端] Flow 监听中")
     }
 
     fun stateText(s: EngineState): String = when (s) {
@@ -133,12 +153,29 @@ fun CompanionScreen(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(status)
-        Text("路由=$policy 云=$cloudMode cfg=$cloudConfigured | ASR=${asr.state.shortLabel} TTS=${tts.state.shortLabel}")
+        Text(
+            "路由=$policy 云=$cloudMode cfg=$cloudConfigured | " +
+                "ASR=${asr.state.shortLabel} TTS=${tts.state.shortLabel}"
+        )
         OutlinedTextField(
             value = modelPath,
             onValueChange = { modelPath = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("模型目录") },
+            label = { Text("LLM 模型目录") },
+            singleLine = true
+        )
+        OutlinedTextField(
+            value = asrPath,
+            onValueChange = { asrPath = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("ASR 模型目录 (models/asr/...)") },
+            singleLine = true
+        )
+        OutlinedTextField(
+            value = ttsPath,
+            onValueChange = { ttsPath = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("TTS 模型目录 (models/tts/...)") },
             singleLine = true
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -184,6 +221,15 @@ fun CompanionScreen(
                     lines.add("[系统] $status")
                 }
             }) { Text("加载本地脑") }
+            Button(onClick = {
+                scope.launch {
+                    lines.add("[语音] 重新加载…")
+                    val asrState = asr.load(asrPath)
+                    val ttsState = tts.load(ttsPath)
+                    voiceStatus = "ASR=${asrState.shortLabel} TTS=${ttsState.shortLabel}"
+                    lines.add("[语音] $voiceStatus nativeAsr=${asr.isUsingNative} nativeTts=${tts.isUsingNative}")
+                }
+            }) { Text("加载语音") }
             Button(onClick = {
                 scope.launch {
                     val n = store.list(20).size

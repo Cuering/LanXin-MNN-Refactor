@@ -24,9 +24,10 @@ LanXin-MNN-Refactor/
 ├── local-llm-domain/    # LocalLlmEngine、Sanitizer、ChatRouter、CloudChatClient
 ├── core-memory/         # 记忆读写 / Decide / 注入预算（独立可替换）
 ├── companion/           # 全屏/桌宠陪伴编排（依赖 domain + memory + voice）
-├── voice/               # ASR / TTS / PetDisplay 接口 + 显式 Stub（无重型 native）
+├── voice/               # ASR/TTS 接口 + Stub + sherpa 真引擎（AAR 构建期下载）
 ├── third_party/mnn/     # 头文件 + NOTICE（so 构建期下载，不进 git）
-└── .github/workflows/   # CI：下载 MNN → 编译 → 单测
+├── third_party/sherpa-onnx/  # NOTICE（AAR 不进 git）
+└── .github/workflows/   # CI：MNN + sherpa AAR → test → assemble → 校验 so 进包
 ```
 
 ### 依赖方向（单向）
@@ -85,6 +86,12 @@ app → voice
 - `AsrEngine` / `TtsEngine` + `VoiceEngineState`（与 LLM 同构可观测）
 - `StubAsrEngine`：默认 `acceptHintAsResult` 支持无麦联调
 - `StubTtsEngine`：可 speak 虚拟播报，状态默认 Stub；`simulateReady` 仅联调用
+- **`sherpa/` 真引擎**（对齐旧 App Bridge，但**禁止假 READY**）：
+  - `SherpaOnnxBridge` / `SherpaTtsBridge`：JNI，无 so 不抛
+  - `SherpaAsrEngine` / `SherpaTtsEngine`：失败 → `NativeMissing` / `LoadFailed`
+  - 无 so 时 `hintText` 可旁路联调，状态仍诚实
+  - AAR：`:voice:downloadSherpaOnnxAar` → `voice/libs/*.aar`（gitignore）
+  - 模型外置：`files/models/asr|tts/`（`VoiceModelPaths`）
 - `PetDisplayState` + `PlaceholderPetDisplay`：Live2D 占位，不装 WebView/moc3
 
 ### companion 接线
@@ -106,13 +113,23 @@ app → voice
 - [x] P4 记忆 UI（列表/搜索/增删）+ `MemoryImportExport` JSON 导入导出（ignoreUnknownKeys 兼容旧字段）
 - [x] P5 骨架：`ChatRouter` + `CloudChatClient` + `voice`(ASR/TTS/Pet stub) + companion 路由/语音轮次 + UI 策略切换 + 单测
 - [x] P5.1 真云端：`OpenAiCompatibleCloudChatClient` + DataStore 设置页 + 探测连通 + 单测（HttpTransport 可注入）
+- [x] P6 sherpa 真 ASR/TTS：AAR 构建期下载 + Bridge + Engine（失败不伪装 READY）+ UI 加载语音 + CI 校验 so
+
+### 与旧 App 语音差异（防闪退）
+
+| 旧 App | 本仓库 |
+|--------|--------|
+| native 失败仍 `READY` + stub 文本 | `NativeMissing` / `LoadFailed`，`isUsable=false` |
+| UI 可能当真机继续走 | 状态行展示真实 shortLabel；hint 旁路不改状态 |
+| AAR 在 app 模块 | AAR 在 `voice` 以 `api` 传递，app 不重复打包 |
 
 ### 下次接续
 
 1. 先读本文件 + `README.md`
-2. 确认最新 CI 是否 success
+2. 确认最新 CI 是否 success（含 sherpa so 进 APK）
 3. 可选加深：
-   - sherpa-onnx ASR/TTS AAR 构建期下载（对齐旧 App，不进 git）
+   - 真麦克风录音 → PCM → ASR（权限 + AudioRecord）
+   - TTS AudioTrack 播放（当前 speak 返回 chars + 可选 PCM 缓存）
    - Live2D WebView 壳 + 仓内/下载 Mao sample
    - CloudConfig 热更新不重建 session（Flow 注入）
-4. 避坑：`*.gradle.kts` 禁止 `#` 注释；JUnit4 `@Test` 方法返回类型必须是 Unit；stub 禁止伪装 Ready
+4. 避坑：`*.gradle.kts` 禁止 `#` 注释；JUnit4 `@Test` 返回 Unit；**禁止 native 失败伪装 Ready**
