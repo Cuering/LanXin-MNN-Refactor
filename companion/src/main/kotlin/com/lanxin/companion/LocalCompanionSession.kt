@@ -23,6 +23,8 @@ import java.util.UUID
 
 /**
  * 本地陪伴会话：记忆 enrich + 多轮对话历史 + 本地/云端路由 + 可选 TTS。
+ *
+ * @param conversationHistory 多轮对话历史；传 null 禁用历史
  */
 class LocalCompanionSession(
     private val engine: LocalLlmEngine,
@@ -34,7 +36,6 @@ class LocalCompanionSession(
     private val asrEngine: AsrEngine = StubAsrEngine(),
     private val ttsEngine: TtsEngine = StubTtsEngine(),
     private val autoSpeak: Boolean = true,
-    /** 多轮对话历史；传 null 禁用历史 */
     private val conversationHistory: ConversationHistory? = ConversationHistory()
 ) {
     private val router = ChatRouter(routePolicy)
@@ -52,6 +53,9 @@ class LocalCompanionSession(
     val ttsState: VoiceEngineState get() = ttsEngine.state
     val policy: ChatRoutePolicy get() = routePolicy
 
+    /** 对外暴露历史（只读），供 UI 展示 */
+    val historyTurns: List<ConversationTurn> get() = conversationHistory?.turns ?: emptyList()
+
     suspend fun ensureLoaded(modelPath: String): EngineState {
         val s = engine.state
         if (s is EngineState.Ready && s.modelPath == modelPath) return s
@@ -63,11 +67,20 @@ class LocalCompanionSession(
         ttsEngine.load(ttsPath)
     }
 
+    suspend fun clearHistory() {
+        conversationHistory?.clear()
+    }
+
     /**
      * 文本轮次：按路由策略选本地或云端，可选自动 TTS。
+     * 自动维护多轮对话历史（若 [conversationHistory] 不为 null）。
      */
     suspend fun chat(userMessage: String, maxTokens: Int = 256): TurnResult {
         maybeCapturePreference(userMessage)
+        conversationHistory?.add("用户", userMessage)
+        val historyBlock = conversationHistory?.formatForPrompt()?.let { h ->
+            if (h.isNotBlank()) "\n--- 最近对话 ---\n$h\n---\n" else ""
+        }.orEmpty()
         val system = memoryEnricher.enrich(
             userMessage,
             "$persona\n${ReplySanitizer.NO_THINK_INSTRUCTION}"
@@ -76,6 +89,7 @@ class LocalCompanionSession(
         val cloudOk = cloudClient.isConfigured
         val decision = router.decide(localUsable, cloudOk)
         if (decision.backend == ChatBackend.NONE) {
+            conversationHistory?.add("兰儿", "无可用后端")
             return TurnResult(
                 reply = "无可用后端：${decision.reason}；本地=${stateLabel(engine.state)} 云端配置=$cloudOk",
                 engineState = engine.state,
@@ -85,15 +99,16 @@ class LocalCompanionSession(
             )
         }
         var used = decision
-        var reply = runBackend(used.backend, system, userMessage, maxTokens)
+        var reply = runBackend(used.backend, system, userMessage, maxTokens, historyBlock)
         if (reply == null) {
             val fb = router.fallback(used.backend, localUsable, cloudOk)
             if (fb != null) {
                 used = fb
-                reply = runBackend(fb.backend, system, userMessage, maxTokens)
+                reply = runBackend(fb.backend, system, userMessage, maxTokens, historyBlock)
             }
         }
         if (reply.isNullOrBlank()) {
+            conversationHistory?.add("兰儿", "生成失败")
             return TurnResult(
                 reply = "生成失败：backend=${used.backend} ${used.reason}",
                 engineState = engine.state,
@@ -102,6 +117,7 @@ class LocalCompanionSession(
                 routeReason = used.reason
             )
         }
+        conversationHistory?.add("兰儿", reply)
         val ttsResult = if (autoSpeak) ttsEngine.speak(reply) else null
         return TurnResult(
             reply = reply,
@@ -139,12 +155,17 @@ class LocalCompanionSession(
         backend: ChatBackend,
         system: String,
         userMessage: String,
-        maxTokens: Int
+        maxTokens: Int,
+        historyBlock: String = ""
     ): String? {
         return when (backend) {
             ChatBackend.LOCAL -> {
                 val prompt = buildString {
                     appendLine(system)
+                    if (historyBlock.isNotBlank()) {
+                        appendLine()
+                        append(historyBlock)
+                    }
                     appendLine()
                     appendLine("用户：$userMessage")
                     append("兰儿：")
@@ -152,6 +173,7 @@ class LocalCompanionSession(
                 engine.generate(prompt, maxTokens)?.takeIf { it.isNotBlank() }
             }
             ChatBackend.CLOUD -> {
+                // 云端暂不支持历史嵌入（system prompt 过长风险），仅传记忆
                 val r = cloudClient.chat(system, userMessage, maxTokens)
                 if (r.ok) r.text?.let { ReplySanitizer.clean(it).displayText }.orEmpty().ifBlank { null }
                 else null
