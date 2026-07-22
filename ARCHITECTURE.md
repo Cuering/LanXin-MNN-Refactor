@@ -102,6 +102,8 @@ app → voice
   - AAR：`:voice:downloadSherpaOnnxAar` → `voice/libs/*.aar`（gitignore）
   - 模型外置：`/sdcard/LanXin/asr|tts/`（`VoiceModelPaths` / `LanXinPaths`）
 - `PetDisplayState` + `PlaceholderPetDisplay`：Live2D 占位，不装 WebView/moc3
+- **P13 VAD 自动停麦**：`VadSilenceDetector`（RMS 状态机）+ `VadAutoStopRecorder`（轮询 `PcmAudioRecorder.snapshotPcm`，与手动 stop 互斥）；UI 默认开，可关
+- **P14 全屏宠物**：`FullScreenPetOverlay` 复用 `Live2DWebViewHost`，底栏麦/VAD/退出
 
 ### companion 接线
 

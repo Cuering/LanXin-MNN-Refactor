@@ -80,9 +80,9 @@ adb push config.json llm.mnn llm.mnn.weight /sdcard/LanXin/models/local-llm/ligh
 ## App 内使用
 
 - **加载本地脑 / 加载语音**：外置路径 load；状态行显示真实 `STUB` / `NATIVE_MISSING` / `READY(...)`
-- **要麦权 → 开始录音 → 停麦发送**：真 PCM → ASR → chat → TTS 播放
+- **要麦权 → 开始录音**：默认 **VAD 自动停麦**（静音约 0.9s 自动发送；可点「VAD开/关」或手点停）
 - **语音hint**：输入框文本当识别结果（无麦 / 无 so 可联调）
-- **Live2D 区**：顶部 WebView 占位；说话时驱动 mouth/expression 占位 API
+- **Live2D 区** / **全屏宠物**：WebView 占位；说话时 PCM RMS 驱动嘴型；全屏底栏可麦+VAD
 - 路由：本地优先 / 仅本地 / 云优先；云设置页配 OpenAI 兼容 API
 
 ## 与旧语音模块

@@ -38,6 +38,28 @@ class PcmAudioRecorder {
 
     val isRecording: Boolean get() = recording.get()
 
+    /** 当前是否走 stub 采集（无硬件）。供 VAD 自动停麦旁路。 */
+    val isStubCapturing: Boolean get() = recording.get() && stubMode
+
+    /**
+     * 非破坏性读取已采集 PCM 快照（VAD 轮询用）。
+     * 未在录或 stub 模式返回 null（stub 由 [VadAutoStopRecorder] 时间推进）。
+     */
+    fun snapshotPcm(): PcmSnapshot? {
+        if (!recording.get() || stubMode) return null
+        val buf = captureBuffer ?: return null
+        val bytes = synchronized(buf) { buf.toByteArray() }
+        if (bytes.isEmpty()) {
+            return PcmSnapshot(pcm = ByteArray(0), sampleRateHz = captureSampleRate)
+        }
+        return PcmSnapshot(pcm = bytes, sampleRateHz = captureSampleRate)
+    }
+
+    data class PcmSnapshot(
+        val pcm: ByteArray,
+        val sampleRateHz: Int
+    )
+
     /** 生成 stub PCM，不触碰硬件。 */
     suspend fun recordStubPcm(
         durationMs: Long = DEFAULT_STUB_DURATION_MS,

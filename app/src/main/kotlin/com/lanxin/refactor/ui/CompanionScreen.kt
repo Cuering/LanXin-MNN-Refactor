@@ -52,10 +52,12 @@ import com.lanxin.refactor.cloud.OpenAiCompatibleCloudChatClient
 import com.lanxin.refactor.paths.LanXinPaths
 import com.lanxin.refactor.settings.CloudSettingsStore
 import com.lanxin.voice.PcmAudioRecorder
+import com.lanxin.voice.VadAutoStopRecorder
 import com.lanxin.voice.VoiceModelPaths
 import com.lanxin.voice.pet.Live2DWebViewHost
 import com.lanxin.voice.sherpa.SherpaAsrEngine
 import com.lanxin.voice.sherpa.SherpaTtsEngine
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
@@ -88,12 +90,16 @@ fun CompanionScreen(
     val asr = remember { SherpaAsrEngine() }
     val tts = remember { SherpaTtsEngine() }
     val mic = remember { PcmAudioRecorder() }
+    val vadMic = remember { VadAutoStopRecorder(mic) }
     val petHost = remember { Live2DWebViewHost() }
     var cloudConfigured by remember { mutableStateOf(false) }
     var voiceStatus by remember { mutableStateOf("语音未加载") }
     var micStatus by remember { mutableStateOf("麦:空闲") }
     var petStatus by remember { mutableStateOf("宠物:未挂载") }
     var recording by remember { mutableStateOf(false) }
+    var vadEnabled by remember { mutableStateOf(true) }
+    var fullScreenPet by remember { mutableStateOf(false) }
+    var vadJob by remember { mutableStateOf<Job?>(null) }
     val lines = remember { mutableStateListOf<String>() }
 
     fun addLine(s: String) {
@@ -163,47 +169,13 @@ fun CompanionScreen(
 
     DisposableEffect(Unit) {
         onDispose {
+            vadJob?.cancel()
             scope.launch {
+                runCatching { vadMic.cancel() }
                 runCatching { mic.cancelRecording() }
                 runCatching { tts.stop() }
             }
             petHost.detach()
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        if (store.list(1).isEmpty()) {
-            store.upsert(
-                MemoryItem(
-                    id = UUID.randomUUID().toString(),
-                    content = "用户是哥哥，称呼亲近。",
-                    type = MemoryType.FACTUAL,
-                    importance = 0.8f
-                )
-            )
-        }
-        val histN = session.loadHistory()
-        if (histN > 0) {
-            addLine("[历史] 已恢复 $histN 条对话")
-            session.historyTurns.takeLast(6).forEach { t ->
-                addLine("${t.role}: ${t.content}")
-            }
-        }
-        val asrState = asr.load(asrPath)
-        val ttsState = tts.load(ttsPath)
-        voiceStatus = "ASR=${asrState.shortLabel} TTS=${ttsState.shortLabel}"
-        addLine("[引擎] MNN=已打包 JNI | Sherpa ASR/TTS=已打包 so")
-        addLine("[语音] $voiceStatus")
-        addLine("[语音路径] asr=$asrPath")
-        addLine("[语音路径] tts=$ttsPath")
-        if (!hasMicPermission()) {
-            addLine("[麦] 未授权，点「要麦权」申请")
-        } else {
-            micStatus = "麦:已授权"
-        }
-        cloudSettings.configFlow.collect { cfg ->
-            cloudConfigRef.set(cfg)
-            cloudConfigured = cfg.apiKey.isNotBlank() && cfg.baseUrl.isNotBlank()
         }
     }
 
@@ -248,235 +220,354 @@ fun CompanionScreen(
         petHost.postExpression("idle")
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+    suspend fun finishMicAudio(
+        audio: com.lanxin.voice.RecordedAudio,
+        viaVad: Boolean
     ) {
-        Text(status)
-        Text(
-            "资源根=${lanXinDir.absolutePath}"
+        val tag = if (viaVad) "VAD停" else "手停"
+        micStatus =
+            "麦:$tag ${audio.durationMs}ms ${audio.byteCount}B stub=${audio.isStub}"
+        addLine(
+            "[麦] $tag PCM ${audio.byteCount}B ${audio.sampleRateHz}Hz " +
+                "${audio.durationMs}ms stub=${audio.isStub}"
         )
-        Text(
-            "路由=$policy 云=$cloudMode cfg=$cloudConfigured | " +
-                "ASR=${asr.state.shortLabel} TTS=${tts.state.shortLabel} | 历史=${session.historyTurns.size}"
+        vadMic.lastSnapshot?.let { addLine("[VAD] ${it.shortLabel}") }
+        runVoiceTurn(
+            pcm = audio.pcm16leMono,
+            hint = input.trim().ifBlank { null },
+            label = if (viaVad) "mic-vad" else "mic"
         )
-        Text("$micStatus | $petStatus | ${petHost.state.shortLabel}")
+        input = ""
+    }
 
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(160.dp)
-        ) {
-            AndroidView(
-                factory = { ctx ->
-                    FrameLayout(ctx).also { container ->
-                        container.layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        petHost.attach(ctx, container)
-                        petStatus = "宠物:已挂载"
-                        addLine("[宠物] Live2D 壳 ${petHost.state.shortLabel}")
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        OutlinedTextField(
-            value = modelPath,
-            onValueChange = { modelPath = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("LLM 模型目录") },
-            singleLine = true
-        )
-        OutlinedTextField(
-            value = asrPath,
-            onValueChange = { asrPath = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("ASR 模型目录") },
-            singleLine = true
-        )
-        OutlinedTextField(
-            value = ttsPath,
-            onValueChange = { ttsPath = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("TTS 模型目录") },
-            singleLine = true
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = policy == ChatRoutePolicy.PREFER_LOCAL,
-                onClick = { policy = ChatRoutePolicy.PREFER_LOCAL },
-                label = { Text("本地优先") }
-            )
-            FilterChip(
-                selected = policy == ChatRoutePolicy.LOCAL_ONLY,
-                onClick = { policy = ChatRoutePolicy.LOCAL_ONLY },
-                label = { Text("仅本地") }
-            )
-            FilterChip(
-                selected = policy == ChatRoutePolicy.PREFER_CLOUD,
-                onClick = { policy = ChatRoutePolicy.PREFER_CLOUD },
-                label = { Text("云优先") }
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = cloudMode == "none",
-                onClick = { cloudMode = "none" },
-                label = { Text("云关") }
-            )
-            FilterChip(
-                selected = cloudMode == "stub",
-                onClick = { cloudMode = "stub" },
-                label = { Text("云stub") }
-            )
-            FilterChip(
-                selected = cloudMode == "real",
-                onClick = { cloudMode = "real" },
-                label = { Text("云真实") }
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Button(onClick = {
-                scope.launch {
-                    status = "加载中…"
-                    val s = session.ensureLoaded(modelPath)
-                    status = stateText(s)
-                    addLine("[系统] $status")
+    fun toggleMic() {
+        scope.launch {
+            if (!recording) {
+                if (!hasMicPermission()) {
+                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    addLine("[麦] 请先授权再按开始录音")
+                    return@launch
                 }
-            }) { Text("加载本地脑") }
-            Button(onClick = {
-                scope.launch {
-                    addLine("[语音] 重新加载…")
-                    val asrState = asr.load(asrPath)
-                    val ttsState = tts.load(ttsPath)
-                    voiceStatus = "ASR=${asrState.shortLabel} TTS=${ttsState.shortLabel}"
-                    addLine(
-                        "[语音] $voiceStatus nativeAsr=${asr.isUsingNative} nativeTts=${tts.isUsingNative}"
+                val started = if (vadEnabled) {
+                    vadMic.start()
+                } else {
+                    mic.startRecording()
+                }
+                if (started.isFailure) {
+                    micStatus = "麦:启动失败"
+                    addLine("[麦] start失败: ${started.exceptionOrNull()?.message}")
+                    return@launch
+                }
+                recording = true
+                if (vadEnabled) {
+                    micStatus = "麦:录音中·VAD听静音…"
+                    addLine("[麦] VAD 开：说完自动停麦发送（也可手点停）")
+                    vadJob?.cancel()
+                    vadJob = scope.launch {
+                        val stopped = vadMic.awaitAutoStop()
+                        if (!recording) return@launch
+                        recording = false
+                        if (stopped.isFailure) {
+                            // 可能被手动 stop 抢先
+                            val msg = stopped.exceptionOrNull()?.message.orEmpty()
+                            if (msg != "not_recording") {
+                                micStatus = "麦:VAD停失败"
+                                addLine("[麦] VAD stop失败: $msg")
+                            }
+                            return@launch
+                        }
+                        finishMicAudio(stopped.getOrNull()!!, viaVad = true)
+                    }
+                } else {
+                    micStatus = "麦:录音中…"
+                    addLine("[麦] 录音中，再点「停麦发送」")
+                }
+            } else {
+                // 手动停：取消 VAD 等待，直接 stop
+                vadJob?.cancel()
+                vadJob = null
+                val stopped = if (vadEnabled) {
+                    vadMic.stopManual()
+                } else {
+                    mic.stopRecording()
+                }
+                recording = false
+                if (stopped.isFailure) {
+                    micStatus = "麦:停止失败"
+                    addLine("[麦] stop失败: ${stopped.exceptionOrNull()?.message}")
+                    return@launch
+                }
+                finishMicAudio(stopped.getOrNull()!!, viaVad = false)
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (store.list(1).isEmpty()) {
+            store.upsert(
+                MemoryItem(
+                    id = UUID.randomUUID().toString(),
+                    content = "用户是哥哥，称呼亲近。",
+                    type = MemoryType.FACTUAL,
+                    importance = 0.8f
+                )
+            )
+        }
+        val histN = session.loadHistory()
+        if (histN > 0) {
+            addLine("[历史] 已恢复 $histN 条对话")
+            session.historyTurns.takeLast(6).forEach { t ->
+                addLine("${t.role}: ${t.content}")
+            }
+        }
+        val asrState = asr.load(asrPath)
+        val ttsState = tts.load(ttsPath)
+        voiceStatus = "ASR=${asrState.shortLabel} TTS=${ttsState.shortLabel}"
+        addLine("[引擎] MNN=已打包 JNI | Sherpa ASR/TTS=已打包 so")
+        addLine("[语音] $voiceStatus")
+        addLine("[语音路径] asr=$asrPath")
+        addLine("[语音路径] tts=$ttsPath")
+        if (!hasMicPermission()) {
+            addLine("[麦] 未授权，点「要麦权」申请")
+        } else {
+            micStatus = "麦:已授权"
+        }
+        cloudSettings.configFlow.collect { cfg ->
+            cloudConfigRef.set(cfg)
+            cloudConfigured = cfg.apiKey.isNotBlank() && cfg.baseUrl.isNotBlank()
+        }
+    }
+
+    if (fullScreenPet) {
+        FullScreenPetOverlay(
+            petHost = petHost,
+            statusLine = "路由=$policy | ${asr.state.shortLabel}/${tts.state.shortLabel} | VAD=${if (vadEnabled) "开" else "关"}",
+            micStatus = micStatus,
+            recording = recording,
+            vadEnabled = vadEnabled,
+            onToggleVad = {
+                if (!recording) {
+                    vadEnabled = !vadEnabled
+                    addLine("[VAD] ${if (vadEnabled) "已开启自动停麦" else "已关闭（手动停麦）"}")
+                }
+            },
+            onMicClick = { toggleMic() },
+            onExit = {
+                fullScreenPet = false
+                petStatus = "宠物:已挂载"
+                addLine("[宠物] 退出全屏")
+            }
+        )
+    } else {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(status)
+            Text(
+                "资源根=${lanXinDir.absolutePath}"
+            )
+            Text(
+                "路由=$policy 云=$cloudMode cfg=$cloudConfigured | " +
+                    "ASR=${asr.state.shortLabel} TTS=${tts.state.shortLabel} | 历史=${session.historyTurns.size}"
+            )
+            Text("$micStatus | $petStatus | ${petHost.state.shortLabel} | VAD=${if (vadEnabled) "开" else "关"}")
+
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(160.dp)
+            ) {
+                AndroidView(
+                    factory = { ctx ->
+                        FrameLayout(ctx).also { container ->
+                            container.layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            petHost.attach(ctx, container)
+                            petStatus = "宠物:已挂载"
+                            addLine("[宠物] Live2D 壳 ${petHost.state.shortLabel}")
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            OutlinedTextField(
+                value = modelPath,
+                onValueChange = { modelPath = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("LLM 模型目录") },
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = asrPath,
+                onValueChange = { asrPath = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("ASR 模型目录") },
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = ttsPath,
+                onValueChange = { ttsPath = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("TTS 模型目录") },
+                singleLine = true
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = policy == ChatRoutePolicy.PREFER_LOCAL,
+                    onClick = { policy = ChatRoutePolicy.PREFER_LOCAL },
+                    label = { Text("本地优先") }
+                )
+                FilterChip(
+                    selected = policy == ChatRoutePolicy.LOCAL_ONLY,
+                    onClick = { policy = ChatRoutePolicy.LOCAL_ONLY },
+                    label = { Text("仅本地") }
+                )
+                FilterChip(
+                    selected = policy == ChatRoutePolicy.PREFER_CLOUD,
+                    onClick = { policy = ChatRoutePolicy.PREFER_CLOUD },
+                    label = { Text("云优先") }
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = cloudMode == "none",
+                    onClick = { cloudMode = "none" },
+                    label = { Text("云关") }
+                )
+                FilterChip(
+                    selected = cloudMode == "stub",
+                    onClick = { cloudMode = "stub" },
+                    label = { Text("云stub") }
+                )
+                FilterChip(
+                    selected = cloudMode == "real",
+                    onClick = { cloudMode = "real" },
+                    label = { Text("云真实") }
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Button(onClick = {
+                    scope.launch {
+                        status = "加载中…"
+                        val s = session.ensureLoaded(modelPath)
+                        status = stateText(s)
+                        addLine("[系统] $status")
+                    }
+                }) { Text("加载本地脑") }
+                Button(onClick = {
+                    scope.launch {
+                        addLine("[语音] 重新加载…")
+                        val asrState = asr.load(asrPath)
+                        val ttsState = tts.load(ttsPath)
+                        voiceStatus = "ASR=${asrState.shortLabel} TTS=${ttsState.shortLabel}"
+                        addLine(
+                            "[语音] $voiceStatus nativeAsr=${asr.isUsingNative} nativeTts=${tts.isUsingNative}"
+                        )
+                    }
+                }) { Text("加载语音") }
+                Button(onClick = {
+                    if (hasMicPermission()) {
+                        micStatus = "麦:已授权"
+                        addLine("[麦] 已有权限")
+                    } else {
+                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                }) { Text("要麦权") }
+                Button(onClick = {
+                    scope.launch {
+                        session.clearHistory()
+                        addLine("[历史] 已清空")
+                    }
+                }) { Text("清历史") }
+                Button(onClick = onOpenMemory) { Text("记忆") }
+                Button(onClick = onOpenCloud) { Text("云设置") }
+                Button(onClick = {
+                    if (!recording) {
+                        vadEnabled = !vadEnabled
+                        addLine("[VAD] ${if (vadEnabled) "已开启自动停麦" else "已关闭（手动停麦）"}")
+                    }
+                }) { Text(if (vadEnabled) "VAD开" else "VAD关") }
+                Button(onClick = {
+                    fullScreenPet = true
+                    petStatus = "宠物:全屏"
+                    addLine("[宠物] 进入全屏")
+                }) { Text("全屏宠物") }
+            }
+            LazyColumn(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                items(lines) { Text(it, Modifier.padding(vertical = 2.dp)) }
+            }
+            OutlinedTextField(
+                value = input,
+                onValueChange = { input = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("对兰儿说") }
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Button(
+                    onClick = {
+                        val msg = input.trim()
+                        if (msg.isEmpty()) return@Button
+                        input = ""
+                        addLine("哥哥: $msg")
+                        scope.launch {
+                            ensureLocalReady()
+                            petHost.postExpression("speak")
+                            val r = session.chat(msg)
+                            status = stateText(r.engineState)
+                            val ttsInfo =
+                                r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""
+                            addLine("兰儿[${r.backend}/${r.routeReason}]$ttsInfo: ${r.reply}")
+                            val ttsR = r.tts
+                            if (ttsR != null && ttsR.ok) {
+                                petHost.lipSyncFromPcm(
+                                    pcm16le = ttsR.pcm16le,
+                                    sampleRateHz = ttsR.pcmSampleRate,
+                                    durationMsFallback = ttsR.audioDurationMs
+                                )
+                            } else {
+                                petHost.postMouthOpen(0f)
+                            }
+                            petHost.postExpression("idle")
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("发送") }
+                Button(
+                    onClick = {
+                        val msg = input.trim()
+                        if (msg.isEmpty()) return@Button
+                        input = ""
+                        addLine("哥哥(语音hint): $msg")
+                        scope.launch { runVoiceTurn(pcm = null, hint = msg, label = "hint") }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("语音hint") }
+                Button(
+                    onClick = { toggleMic() },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        when {
+                            recording && vadEnabled -> "录音中·听静音…"
+                            recording -> "停麦发送"
+                            else -> "开始录音"
+                        }
                     )
                 }
-            }) { Text("加载语音") }
-            Button(onClick = {
-                if (hasMicPermission()) {
-                    micStatus = "麦:已授权"
-                    addLine("[麦] 已有权限")
-                } else {
-                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                }
-            }) { Text("要麦权") }
-            Button(onClick = {
-                scope.launch {
-                    session.clearHistory()
-                    addLine("[历史] 已清空")
-                }
-            }) { Text("清历史") }
-            Button(onClick = onOpenMemory) { Text("记忆") }
-            Button(onClick = onOpenCloud) { Text("云设置") }
-        }
-        LazyColumn(
-            Modifier
-                .weight(1f)
-                .fillMaxWidth()
-        ) {
-            items(lines) { Text(it, Modifier.padding(vertical = 2.dp)) }
-        }
-        OutlinedTextField(
-            value = input,
-            onValueChange = { input = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("对兰儿说") }
-        )
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Button(
-                onClick = {
-                    val msg = input.trim()
-                    if (msg.isEmpty()) return@Button
-                    input = ""
-                    addLine("哥哥: $msg")
-                    scope.launch {
-                        ensureLocalReady()
-                        petHost.postExpression("speak")
-                        val r = session.chat(msg)
-                        status = stateText(r.engineState)
-                        val ttsInfo =
-                            r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""
-                        addLine("兰儿[${r.backend}/${r.routeReason}]$ttsInfo: ${r.reply}")
-                        val ttsR = r.tts
-                        if (ttsR != null && ttsR.ok) {
-                            petHost.lipSyncFromPcm(
-                                pcm16le = ttsR.pcm16le,
-                                sampleRateHz = ttsR.pcmSampleRate,
-                                durationMsFallback = ttsR.audioDurationMs
-                            )
-                        } else {
-                            petHost.postMouthOpen(0f)
-                        }
-                        petHost.postExpression("idle")
-                    }
-                },
-                modifier = Modifier.weight(1f)
-            ) { Text("发送") }
-            Button(
-                onClick = {
-                    val msg = input.trim()
-                    if (msg.isEmpty()) return@Button
-                    input = ""
-                    addLine("哥哥(语音hint): $msg")
-                    scope.launch { runVoiceTurn(pcm = null, hint = msg, label = "hint") }
-                },
-                modifier = Modifier.weight(1f)
-            ) { Text("语音hint") }
-            Button(
-                onClick = {
-                    scope.launch {
-                        if (!recording) {
-                            if (!hasMicPermission()) {
-                                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                addLine("[麦] 请先授权再按开始录音")
-                                return@launch
-                            }
-                            val started = mic.startRecording()
-                            if (started.isFailure) {
-                                micStatus = "麦:启动失败"
-                                addLine("[麦] start失败: ${started.exceptionOrNull()?.message}")
-                                return@launch
-                            }
-                            recording = true
-                            micStatus = "麦:录音中…"
-                            addLine("[麦] 录音中，再点「停麦发送」")
-                        } else {
-                            val stopped = mic.stopRecording()
-                            recording = false
-                            if (stopped.isFailure) {
-                                micStatus = "麦:停止失败"
-                                addLine("[麦] stop失败: ${stopped.exceptionOrNull()?.message}")
-                                return@launch
-                            }
-                            val audio = stopped.getOrNull()!!
-                            micStatus =
-                                "麦:已录 ${audio.durationMs}ms ${audio.byteCount}B stub=${audio.isStub}"
-                            addLine(
-                                "[麦] PCM ${audio.byteCount}B ${audio.sampleRateHz}Hz " +
-                                    "${audio.durationMs}ms stub=${audio.isStub}"
-                            )
-                            runVoiceTurn(
-                                pcm = audio.pcm16leMono,
-                                hint = input.trim().ifBlank { null },
-                                label = "mic"
-                            )
-                            input = ""
-                        }
-                    }
-                },
-                modifier = Modifier.weight(1f)
-            ) { Text(if (recording) "停麦发送" else "开始录音") }
+            }
         }
     }
 }
