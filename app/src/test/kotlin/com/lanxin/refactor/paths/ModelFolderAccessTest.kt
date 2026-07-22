@@ -1,18 +1,14 @@
 package com.lanxin.refactor.paths
 
-import android.net.Uri
-import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.*
 import org.junit.Test
-import org.junit.runner.RunWith
 import java.io.File
 
-@RunWith(AndroidJUnit4::class)
 class ModelFolderAccessTest {
 
     @Test
     fun treeUriToAbsolutePath_primary() {
-        val uri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3ALanXin%2Fasr")
+        val uri = android.net.Uri.parse("content://com.android.externalstorage.documents/tree/primary%3ALanXin%2Fasr")
         val path = ModelFolderAccess.treeUriToAbsolutePath(uri)
         assertNotNull("should resolve primary: path", path)
         assertTrue("expected /storage/emulated/0/LanXin/asr", path!!.endsWith("LanXin/asr"))
@@ -70,7 +66,7 @@ class ModelFolderAccessTest {
     @Test
     fun listCandidateDirs_findsModelDirs() {
         val root = createTempDir("scan_test")
-        // \u521b\u5efa\u7c7b\u4f3c /sdcard/LanXin/ \u7ed3\u6784
+        // 创建类似 /sdcard/LanXin/ 结构
         File(root, "models/local-llm").apply {
             mkdirs()
             File(this, "llm.mnn").writeText("fake")
@@ -101,6 +97,6 @@ class ModelFolderAccessTest {
 
     @Test
     fun shortLabel_blank_returnsUnselected() {
-        assertEquals("\u672a\u9009\u62e9", ModelFolderAccess.shortLabel(""))
+        assertEquals("未选择", ModelFolderAccess.shortLabel(""))
     }
 }
