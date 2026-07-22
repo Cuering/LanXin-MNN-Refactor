@@ -72,7 +72,7 @@ app → voice
 兼容识别旧路径：`files/models/local-llm`、`files/models/asr|tts`、`debug-assets/`。
 
 `config.json` 中 `backend_type` 建议：`opencl`（失败再 `cpu`）。  
-引擎层记录实际 backend 与 load 错误，禁止“看起来 READY 其实 stub”。
+引擎层记录实际 backend 与 load 错误，禁止"看起来 READY 其实 stub"。
 
 路径解析入口：`com.lanxin.refactor.paths.LanXinPaths` + `VoiceModelPaths`。
 
@@ -130,6 +130,13 @@ app → voice
 - [x] P9 `PcmRmsAnalyzer` 真 PCM RMS 驱动嘴型 + `lipSyncFromPcm`（无 PCM 回退占位）+ JVM 单测
 - [x] P9.1 多轮 `ConversationHistory` 滑动窗口接入 chat prompt（成功后写入；失败不污染）+ 单测
 - [x] P10 多轮对话历史：`ConversationHistory` 滑动窗口（可配 maxTurns）+ 本地 prompt 嵌入 + 路由/云端兼容 + 单测
+- [x] P11 对话历史持久化 + 跨会话复用 companion session
+- [x] P12 云端多轮 chatMessages 数组（非 history 拼 system）
+- [x] **P13 VAD 自动停麦**：`VadSilenceDetector` + `VadAutoStopRecorder`；UI 默认开，说完约 0.9s 静音自动停
+- [x] **P14 全屏宠物**：`FullScreenPetOverlay` Live2D 铺满 + 底栏麦/VAD/退出
+- [x] **UI 翻新**：Material3 Card 分区，底部输入固定，不再密集老式布局
+- [x] **文件夹选模型**：SAF `OpenDocumentTree` + 候选 chip 扫描，不手填路径
+- [x] **Live2D contain 完整显示**：CSS contain + 安全边距，不切头脚
 
 ### 与旧 App 语音差异（防闪退）
 
@@ -148,9 +155,11 @@ app → voice
 | 录音/播放 | `PcmAudioRecorder` / `PcmAudioPlayer` | 纯 Java/Kotlin |
 | Live2D 壳 | `Live2DWebViewHost` + assets | assets/live2d/index.html |
 
-### 下次接续
+### 后续可做
 
-1. 先读本文件 + `README.md`
-2. 确认最新 CI 是否 success（含 MNN + sherpa + live2d 进 APK）
-3. 可选加深：真 moc3 模型、流式 ASR、CloudConfig 热更新
-4. 避坑：`*.gradle.kts` 禁止 `#` 注释；JUnit4 `@Test` 返回 Unit；**禁止 native 失败伪装 Ready**
+1. **真 Live2D Cubism 模型** — 当前为 Canvas 占位绘图；可集成 Cubism WebGL SDK 加载真 .moc3/.model3.json
+2. **流式 ASR** — sherpa-onnx 支持流式识别，当前为整段识别
+3. **CloudConfig 热更新** — DataStore 已流式，UI 可加实时切云按钮
+4. **桌宠背景/音乐** — 目录已预留 `backgrounds/` / `music/`，未接入
+5. **记忆增强** — 自动摘要/重要性衰减/长期→短期分层
+6. 避坑续：`*.gradle.kts` 禁止 `#` 注释；JUnit4 `@Test` 返回 Unit；**禁止 native 失败伪装 Ready**
