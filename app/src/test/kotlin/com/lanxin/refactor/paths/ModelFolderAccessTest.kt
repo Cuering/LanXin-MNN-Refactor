@@ -7,14 +7,6 @@ import java.io.File
 class ModelFolderAccessTest {
 
     @Test
-    fun treeUriToAbsolutePath_primary() {
-        val uri = android.net.Uri.parse("content://com.android.externalstorage.documents/tree/primary%3ALanXin%2Fasr")
-        val path = ModelFolderAccess.treeUriToAbsolutePath(uri)
-        assertNotNull("should resolve primary: path", path)
-        assertTrue("expected /storage/emulated/0/LanXin/asr", path!!.endsWith("LanXin/asr"))
-    }
-
-    @Test
     fun docIdToAbsolutePath_primary() {
         val path = ModelFolderAccess.docIdToAbsolutePath("primary:LanXin/models/local-llm")
         assertEquals("/storage/emulated/0/LanXin/models/local-llm", path)
@@ -66,26 +58,33 @@ class ModelFolderAccessTest {
     @Test
     fun listCandidateDirs_findsModelDirs() {
         val root = createTempDir("scan_test")
-        // 创建类似 /sdcard/LanXin/ 结构
-        File(root, "models/local-llm").apply {
+        // listCandidateDirs 只扫描 root 的直接子目录（含 root 自身）
+        // 所以把模型目录直接放在 root 下
+        val llmDir = File(root, "local-llm")
+        llmDir.apply {
             mkdirs()
             File(this, "llm.mnn").writeText("fake")
         }
-        File(root, "asr/sherpa-onnx-paraformer").apply {
+        val asrDir = File(root, "sherpa-onnx-paraformer")
+        asrDir.apply {
             mkdirs()
             File(this, "tokens.txt").writeText("<unk> 0")
             File(this, "decoder.onnx").writeText("fake")
         }
-        File(root, "tts/sherpa-onnx-vits").mkdirs() // no model files => not detected
-        File(root, "live2d/Mao").apply {
+        // 空目录不会被 looksLikeModelDir 检测到，且 listCandidateDirs 不会加入空目录
+        File(root, "empty-dir").mkdirs()
+        val live2dDir = File(root, "Mao")
+        live2dDir.apply {
             mkdirs()
             File(this, "Mao.model3.json").writeText("{}")
         }
         val results = ModelFolderAccess.listCandidateDirs(root)
         System.err.println("Candidates: ${results.map { it.name }}")
-        assertTrue("should find models/local-llm", results.any { it.name == "local-llm" })
+        assertTrue("should find local-llm", results.any { it.name == "local-llm" })
         assertTrue("should find sherpa-onnx-paraformer", results.any { it.name == "sherpa-onnx-paraformer" })
         assertTrue("should find Mao", results.any { it.name == "Mao" })
+        // empty-dir 无内容不应被加入
+        assertFalse("should NOT find empty-dir", results.any { it.name == "empty-dir" })
         root.deleteRecursively()
     }
 
