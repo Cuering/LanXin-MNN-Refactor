@@ -42,7 +42,7 @@ fun MemoryScreen(onBack: () -> Unit) {
     val store = remember {
         FileMemoryStore(File(context.filesDir, "memory/memories.json"))
     }
-    val items = remember { mutableStateListOf<MemoryItem>() }
+    val memoryList = remember { mutableStateListOf<MemoryItem>() }
     var query by remember { mutableStateOf("") }
     var draft by remember { mutableStateOf("") }
     var importText by remember { mutableStateOf("") }
@@ -50,8 +50,8 @@ fun MemoryScreen(onBack: () -> Unit) {
 
     suspend fun reload() {
         val list = if (query.isBlank()) store.list(100) else store.search(query, 50)
-        items.clear()
-        items.addAll(list)
+        memoryList.clear()
+        memoryList.addAll(list)
     }
 
     LaunchedEffect(Unit) { reload() }
@@ -67,7 +67,7 @@ fun MemoryScreen(onBack: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             TextButton(onClick = onBack) { Text("← 返回") }
-            Text("记忆 (${items.size})")
+            Text("记忆 (${memoryList.size})")
         }
         if (banner.isNotEmpty()) Text(banner)
 
@@ -146,9 +146,9 @@ fun MemoryScreen(onBack: () -> Unit) {
                 .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            items(items, key = { it.id }) { item ->
-                Card(Modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier = Modifier.padding(12.dp)) {
+            items(memoryList, key = { it.id }) { item ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp)) {
                         Text(item.content)
                         Text("type=${item.type} imp=${item.importance}")
                         TextButton(onClick = {
