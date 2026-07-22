@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,8 +28,13 @@ import com.lanxin.core.memory.FileMemoryStore
 import com.lanxin.core.memory.MemoryEnricher
 import com.lanxin.core.memory.MemoryItem
 import com.lanxin.core.memory.MemoryType
+import com.lanxin.localllm.domain.ChatRoutePolicy
 import com.lanxin.localllm.domain.EngineState
 import com.lanxin.localllm.domain.MnnLocalLlmEngine
+import com.lanxin.localllm.domain.StubCloudChatClient
+import com.lanxin.localllm.domain.UnconfiguredCloudChatClient
+import com.lanxin.voice.StubAsrEngine
+import com.lanxin.voice.StubTtsEngine
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
@@ -41,13 +47,22 @@ fun CompanionScreen(onOpenMemory: () -> Unit = {}) {
         FileMemoryStore(File(context.filesDir, "memory/memories.json"))
     }
     val engine = remember { MnnLocalLlmEngine() }
-    val session = remember {
-        LocalCompanionSession(
-            engine = engine,
-            memoryEnricher = MemoryEnricher(store),
-            memoryStore = store
-        )
-    }
+    var policy by remember { mutableStateOf(ChatRoutePolicy.PREFER_LOCAL) }
+    var useStubCloud by remember { mutableStateOf(false) }
+    val asr = remember { StubAsrEngine() }
+    val tts = remember { StubTtsEngine(simulateReady = false) }
+
+    fun buildSession(): LocalCompanionSession = LocalCompanionSession(
+        engine = engine,
+        memoryEnricher = MemoryEnricher(store),
+        memoryStore = store,
+        routePolicy = policy,
+        cloudClient = if (useStubCloud) StubCloudChatClient() else UnconfiguredCloudChatClient(),
+        asrEngine = asr,
+        ttsEngine = tts,
+        autoSpeak = true
+    )
+
     var modelPath by remember {
         mutableStateOf(
             File(context.getExternalFilesDir(null), "models/local-llm").absolutePath
@@ -58,7 +73,6 @@ fun CompanionScreen(onOpenMemory: () -> Unit = {}) {
     val lines = remember { mutableStateListOf<String>() }
 
     LaunchedEffect(Unit) {
-        // seed only if empty
         if (store.list(1).isEmpty()) {
             store.upsert(
                 MemoryItem(
@@ -69,6 +83,10 @@ fun CompanionScreen(onOpenMemory: () -> Unit = {}) {
                 )
             )
         }
+        // 显式 load 语音 stub，状态可观测
+        asr.load(null)
+        tts.load(null)
+        lines.add("[语音] ASR=${asr.state.shortLabel} TTS=${tts.state.shortLabel}")
     }
 
     fun stateText(s: EngineState): String = when (s) {
@@ -87,6 +105,7 @@ fun CompanionScreen(onOpenMemory: () -> Unit = {}) {
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(status)
+        Text("路由=$policy 云端stub=$useStubCloud | ASR=${asr.state.shortLabel} TTS=${tts.state.shortLabel}")
         OutlinedTextField(
             value = modelPath,
             onValueChange = { modelPath = it },
@@ -95,10 +114,32 @@ fun CompanionScreen(onOpenMemory: () -> Unit = {}) {
             singleLine = true
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = policy == ChatRoutePolicy.PREFER_LOCAL,
+                onClick = { policy = ChatRoutePolicy.PREFER_LOCAL },
+                label = { Text("本地优先") }
+            )
+            FilterChip(
+                selected = policy == ChatRoutePolicy.LOCAL_ONLY,
+                onClick = { policy = ChatRoutePolicy.LOCAL_ONLY },
+                label = { Text("仅本地") }
+            )
+            FilterChip(
+                selected = policy == ChatRoutePolicy.PREFER_CLOUD,
+                onClick = { policy = ChatRoutePolicy.PREFER_CLOUD },
+                label = { Text("云优先") }
+            )
+            FilterChip(
+                selected = useStubCloud,
+                onClick = { useStubCloud = !useStubCloud },
+                label = { Text("云stub") }
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
                 scope.launch {
                     status = "加载中…"
-                    val s = session.ensureLoaded(modelPath)
+                    val s = buildSession().ensureLoaded(modelPath)
                     status = stateText(s)
                     lines.add("[系统] $status")
                 }
@@ -124,19 +165,37 @@ fun CompanionScreen(onOpenMemory: () -> Unit = {}) {
             modifier = Modifier.fillMaxWidth(),
             label = { Text("对兰儿说") }
         )
-        Button(
-            onClick = {
-                val msg = input.trim()
-                if (msg.isEmpty()) return@Button
-                input = ""
-                lines.add("哥哥: $msg")
-                scope.launch {
-                    val r = session.chat(msg)
-                    status = stateText(r.engineState)
-                    lines.add("兰儿: ${r.reply}")
-                }
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("发送") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = {
+                    val msg = input.trim()
+                    if (msg.isEmpty()) return@Button
+                    input = ""
+                    lines.add("哥哥: $msg")
+                    scope.launch {
+                        val r = buildSession().chat(msg)
+                        status = stateText(r.engineState)
+                        val ttsInfo = r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""
+                        lines.add("兰儿[${r.backend}/${r.routeReason}]$ttsInfo: ${r.reply}")
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            ) { Text("发送") }
+            Button(
+                onClick = {
+                    val msg = input.trim()
+                    if (msg.isEmpty()) return@Button
+                    input = ""
+                    lines.add("哥哥(语音hint): $msg")
+                    scope.launch {
+                        val r = buildSession().chatFromVoice(hintText = msg)
+                        status = stateText(r.engineState)
+                        val ttsInfo = r.tts?.let { " tts=${it.detail ?: "ok"}(${it.spokenChars})" } ?: ""
+                        lines.add("兰儿[${r.backend}]$ttsInfo: ${r.reply}")
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            ) { Text("语音hint") }
+        }
     }
 }

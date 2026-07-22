@@ -12,7 +12,8 @@
 | CMake 早于 so 就绪 | `configureCMake*` / `buildCMake*` / `externalNativeBuild*` 全部 dependsOn 下载 |
 | so 加载失败静默 stub | 明确 `EngineState`（Ready / NativeMissing / LoadFailed / Stub）并在 UI 展示 |
 | 元提示泄漏 | `ReplySanitizer` 在引擎出口统一清洗 |
-| 巨型单体 app 模块 | 拆 `local-llm-core` / `local-llm-domain` / `core-memory` / `companion` |
+| 巨型单体 app 模块 | 拆 `local-llm-core` / `local-llm-domain` / `core-memory` / `companion` / `voice` |
+| ASR/TTS 伪装 READY | `VoiceEngineState` 与 LLM 同构；stub 永不伪装 Ready（除非显式 `simulateReady` 联调） |
 
 ## 模块划分
 
@@ -20,9 +21,10 @@
 LanXin-MNN-Refactor/
 ├── app/                 # 壳：UI、DI 组装、权限
 ├── local-llm-core/      # JNI + MnnBridge（无业务）
-├── local-llm-domain/    # LocalLlmEngine、配置、Sanitizer、路由接口
+├── local-llm-domain/    # LocalLlmEngine、Sanitizer、ChatRouter、CloudChatClient
 ├── core-memory/         # 记忆读写 / Decide / 注入预算（独立可替换）
-├── companion/           # 全屏/桌宠陪伴编排（依赖 domain + memory）
+├── companion/           # 全屏/桌宠陪伴编排（依赖 domain + memory + voice）
+├── voice/               # ASR / TTS / PetDisplay 接口 + 显式 Stub（无重型 native）
 ├── third_party/mnn/     # 头文件 + NOTICE（so 构建期下载，不进 git）
 └── .github/workflows/   # CI：下载 MNN → 编译 → 单测
 ```
@@ -33,9 +35,12 @@ LanXin-MNN-Refactor/
 app → companion → local-llm-domain → local-llm-core
 app → core-memory
 companion → core-memory
+companion → voice
+app → voice
 ```
 
-各模块可独立编译与替换；`local-llm-core` 仅暴露 JNI/加载能力，不含 UI。
+各模块可独立编译与替换；`local-llm-core` 仅暴露 JNI/加载能力，不含 UI。  
+`voice` 不依赖 LLM，便于单独替换 sherpa 实现。
 
 ## 阶段
 
@@ -43,7 +48,8 @@ companion → core-memory
 2. **P1** domain 引擎 + Sanitizer + 设置页  
 3. **P2** core-memory 最小 CRUD + 注入到 prompt  
 4. **P3** companion 本地对话闭环（记忆 enrich + 本地生成）  
-5. **P4+** 从旧 App 迁移 ASR/TTS/Live2D/云端路由（可选）
+5. **P4** 记忆 UI + JSON 导入导出  
+6. **P5** 云端路由 / ASR / TTS / Live2D 骨架（接口 + stub + 路由策略；真 native 后续）
 
 ## 模型路径约定
 
@@ -60,6 +66,35 @@ companion → core-memory
 `config.json` 中 `backend_type` 建议：`opencl`（失败再 `cpu`）。  
 引擎层记录实际 backend 与 load 错误，禁止“看起来 READY 其实 stub”。
 
+## P5 设计要点
+
+### ChatRouter（local-llm-domain）
+
+| 策略 | 行为 |
+|------|------|
+| `LOCAL_ONLY` | 仅本地，不可用则失败 |
+| `PREFER_LOCAL` | 本地可用→本地；否则云端（若已配置） |
+| `PREFER_CLOUD` | 云端优先，失败回落本地 |
+| `CLOUD_ONLY` | 仅云端 |
+
+`CloudChatClient` 接口可替换；默认 `UnconfiguredCloudChatClient`（`isConfigured=false`）。  
+演示可用 `StubCloudChatClient`。真 HTTP 客户端放 app 或独立 `cloud` 模块，不塞进 domain 实现细节。
+
+### voice 模块
+
+- `AsrEngine` / `TtsEngine` + `VoiceEngineState`（与 LLM 同构可观测）
+- `StubAsrEngine`：默认 `acceptHintAsResult` 支持无麦联调
+- `StubTtsEngine`：可 speak 虚拟播报，状态默认 Stub；`simulateReady` 仅联调用
+- `PetDisplayState` + `PlaceholderPetDisplay`：Live2D 占位，不装 WebView/moc3
+
+### companion 接线
+
+`LocalCompanionSession` 增加：
+
+- `routePolicy` / `cloudClient` / `asrEngine` / `ttsEngine` / `autoSpeak`
+- `chat()` 走路由 + 可选 TTS
+- `chatFromVoice(hintText|pcm)` → ASR → chat
+
 ## 进度
 
 - [x] P0 仓库骨架 + MNN download(arm64/armv7) + JNI + CI 绿
@@ -69,11 +104,14 @@ companion → core-memory
 - [x] 修：`app` 缺 serialization 依赖；根因是 `.kts` 误用 `#` 注释（应用 `//`）
 - [x] 修：JUnit4 测试方法不能有返回值；`deleteRecursively()` 作最后表达式会返回 Boolean
 - [x] P4 记忆 UI（列表/搜索/增删）+ `MemoryImportExport` JSON 导入导出（ignoreUnknownKeys 兼容旧字段）
-- [ ] P5 云端路由 / ASR / TTS / Live2D 迁移
+- [x] P5 骨架：`ChatRouter` + `CloudChatClient` + `voice`(ASR/TTS/Pet stub) + companion 路由/语音轮次 + UI 策略切换 + 单测
 
 ### 下次接续
 
 1. 先读本文件 + `README.md`
 2. 确认最新 CI 是否 success
-3. 若绿：做 P5 或加深记忆（编辑/标签/旧 App 完整 schema 映射）
-4. 避坑：`*.gradle.kts` 禁止 `#` 注释；JUnit4 `@Test` 方法返回类型必须是 Unit
+3. 可选加深：
+   - 真 `CloudChatClient`（OkHttp + OpenAI 兼容，密钥走 DataStore）
+   - sherpa-onnx ASR/TTS AAR 构建期下载（对齐旧 App，不进 git）
+   - Live2D WebView 壳 + 仓内/下载 Mao sample
+4. 避坑：`*.gradle.kts` 禁止 `#` 注释；JUnit4 `@Test` 方法返回类型必须是 Unit；stub 禁止伪装 Ready

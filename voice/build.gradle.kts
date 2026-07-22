@@ -4,20 +4,21 @@ plugins {
 }
 
 android {
-    namespace = "com.lanxin.companion"
+    namespace = "com.lanxin.voice"
     compileSdk = 35
-    defaultConfig { minSdk = 26; consumerProguardFiles("consumer-rules.pro") }
+    defaultConfig {
+        minSdk = 26
+        consumerProguardFiles("consumer-rules.pro")
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    testOptions { unitTests.isReturnDefaultValues = true }
 }
 
 dependencies {
-    api(project(":local-llm-domain"))
-    api(project(":core-memory"))
-    api(project(":voice"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)

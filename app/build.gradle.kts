@@ -56,6 +56,7 @@ dependencies {
     implementation(project(":local-llm-domain"))
     implementation(project(":core-memory"))
     implementation(project(":local-llm-core"))
+    implementation(project(":voice"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
