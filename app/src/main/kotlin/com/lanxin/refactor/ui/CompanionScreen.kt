@@ -208,7 +208,19 @@ fun CompanionScreen(
         is EngineState.Stub -> "STUB: ${s.reason}"
     }
 
+    /** 纯本地可独立用：未 READY 时先尝试加载本地模型（云端未配置也能聊）。 */
+    suspend fun ensureLocalReady(): EngineState {
+        val cur = engine.state
+        if (cur is EngineState.Ready) return cur
+        status = "加载本地脑…"
+        val s = session.ensureLoaded(modelPath)
+        status = stateText(s)
+        addLine("[系统] 自动加载: $status")
+        return s
+    }
+
     suspend fun runVoiceTurn(pcm: ByteArray?, hint: String?, label: String) {
+        ensureLocalReady()
         petHost.postExpression("speak")
         val r = session.chatFromVoice(hintText = hint, pcm16le = pcm)
         status = stateText(r.engineState)
@@ -378,6 +390,7 @@ fun CompanionScreen(
                     input = ""
                     addLine("哥哥: $msg")
                     scope.launch {
+                        ensureLocalReady()
                         petHost.postExpression("speak")
                         val r = session.chat(msg)
                         status = stateText(r.engineState)
