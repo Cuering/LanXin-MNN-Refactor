@@ -57,7 +57,7 @@ fun CompanionScreen(
     val cloudSettings = remember { CloudSettingsStore(context.applicationContext) }
     val cloudConfigRef = remember { AtomicReference(CloudConfig()) }
     val realCloudClient = remember {
-        OpenAiCompatibleCloudChatClient { cloudConfigRef.get() }
+        OpenAiCompatibleCloudChatClient(configProvider = { cloudConfigRef.get() })
     }
     val engine = remember { MnnLocalLlmEngine() }
     var policy by remember { mutableStateOf(ChatRoutePolicy.PREFER_LOCAL) }

@@ -90,7 +90,12 @@ fun CloudSettingsScreen(onBack: () -> Unit) {
             onClick = {
                 scope.launch {
                     store.save(baseUrl, apiKey, model)
-                    val client = OpenAiCompatibleCloudChatClient { store.current() }
+                    val cfg = CloudConfig(
+                        baseUrl = baseUrl.trim(),
+                        apiKey = apiKey.trim(),
+                        model = model.trim().ifBlank { "gpt-4o-mini" }
+                    )
+                    val client = OpenAiCompatibleCloudChatClient(configProvider = { cfg })
                     if (!client.isConfigured) {
                         banner = "未配置完整"
                         return@launch

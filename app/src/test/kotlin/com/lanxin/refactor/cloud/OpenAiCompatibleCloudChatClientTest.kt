@@ -11,7 +11,8 @@ class OpenAiCompatibleCloudChatClientTest {
     @Test
     fun notConfigured_whenMissingKey() = runBlocking {
         val client = OpenAiCompatibleCloudChatClient(
-            configProvider = { CloudConfig(apiKey = "", baseUrl = "https://example.com/v1") }
+            configProvider = { CloudConfig(apiKey = "", baseUrl = "https://example.com/v1") },
+            transport = UrlHttpTransport()
         )
         assertFalse(client.isConfigured)
         val r = client.chat("sys", "hi")
