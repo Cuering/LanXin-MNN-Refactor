@@ -3,6 +3,7 @@ package com.lanxin.voice
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -73,4 +74,15 @@ class VoiceModelPathsTest {
             path
         )
     }
+
+    @Test
+    fun looksLikeTtsModel_requiresTokensAndOnnx() {
+        val base = tmp.root
+        val model = File(base, "LanXin/tts/vits").apply { mkdirs() }
+        File(model, "tokens.txt").writeText("a")
+        assertTrue(!VoiceModelPaths.looksLikeTtsModel(model))
+        File(model, "model.onnx").writeBytes(ByteArray(20_000) { 1 })
+        assertTrue(VoiceModelPaths.looksLikeTtsModel(model))
+    }
+
 }

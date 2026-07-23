@@ -19,12 +19,15 @@ object ReplySanitizer {
      * 模型「不学标签」——输出约束明确禁止内部协议外泄。
      */
     const val NO_THINK_INSTRUCTION: String =
-        "【输出约束】你是陪伴角色「兰心/兰儿」，用第一人称直接对用户说话。" +
+        "【输出约束·强制】你是陪伴角色「兰心/兰儿」，用第一人称直接对用户说话。" +
             "只输出面向用户的可见短正文（问候约 1～2 句，日常不超过 4 句）。" +
-            "禁止输出思考过程、工具检查、分析/理由/回应建议、Markdown 报告结构。" +
-            "不要输出 <think>、</think>，不要输出 [[mood=…]]、[[listen]] 等双方括号隐藏标签或动作标签。" +
-            "不要写「让我分析」「查看可用工具」「没有 greeting_tool」「系统已明确角色设定」等元话术。" +
-            "不要使用任何 emoji、表情符号或颜文字。"
+            "【禁止思考外泄】不要输出任何思考过程——无论是否带 <think> 标签。" +
+            "禁止：分析/理由/判断/步骤推理、工具检查、Markdown 报告、编号拆解用户意图。" +
+            "禁止无标签思考句式，例如「让我分析」「首先…其次…」「用户说的是…所以我…」" +
+            "「我应该…」「检查工具」「回应建议」「没有 xxx_tool」等。" +
+            "不要输出 <think>、</think>，不要输出 [[mood=…]]、[[listen]] 等双方括号隐藏标签。" +
+            "不要写「系统已明确角色设定」等元话术。不要使用 emoji、表情符号或颜文字。" +
+            "开场第一句就必须是对用户说的话，不要先写内部推理。"
 
     /** @deprecated 使用 [NO_THINK_INSTRUCTION] */
     const val NO_THINK_OR_TAGS_INSTRUCTION: String = NO_THINK_INSTRUCTION
@@ -43,7 +46,10 @@ object ReplySanitizer {
         """(?im)^\s{0,3}(?:#{1,6}\s*)?(?:\*\*)?(?:回应建议|分析|理由|判断|工具可用性|检查工具|注意事项)(?:\*\*)?[：:\s]*$"""
     )
     private val META_LEAD_LINE = Regex(
-        """(?im)^\s*(?:让我分析一下|接下来分析|分析一下这个问题|查看可用工具|检查工具可用性|生成友好回应|注意[：:].*隐藏标签|只能用可见内容回复).*"""
+        """(?im)^\s*(?:让我分析一下|让我思考|让我想想|我来分析|接下来分析|分析一下这个问题|""" +
+            """查看可用工具|检查工具可用性|生成友好回应|首先[，,]?分析|逐步分析|""" +
+            """用户意图是|用户说的是|所以我应该|我应该回复|注意[：:].*隐藏标签|""" +
+            """只能用可见内容回复).*"""
     )
     private val META_LINE_MARKERS = listOf(
         "查看可用工具",
@@ -60,7 +66,25 @@ object ReplySanitizer {
         "不需要复杂的推理",
         "不需要调用工具",
         "自然语言回复即可",
-        "系统已明确角色设定与输出规范"
+        "系统已明确角色设定与输出规范",
+        // 无标签思考常见泄漏
+        "让我思考",
+        "让我想想",
+        "我来分析",
+        "分析用户",
+        "用户意图",
+        "用户说的是",
+        "所以我应该",
+        "我应该回复",
+        "我应该回应",
+        "接下来我",
+        "首先分析",
+        "逐步分析",
+        "推理过程",
+        "思考过程",
+        "内部推理",
+        "chain of thought",
+        "step by step"
     )
     private val NUMBERED_META = Regex("""^\d+[\.、]\s*(用户|检查|生成|注意|查看)""")
     private val BOLD_META_KEY = Regex("""^\*\*[^*]+\*\*[：:]?""")
@@ -177,7 +201,53 @@ object ReplySanitizer {
             }
             kept += line
         }
-        return collapseWhitespace(kept.joinToString("\n"))
+        val joined = collapseWhitespace(kept.joinToString("\n"))
+        return dropLeadingBareThinking(joined)
+    }
+
+    /**
+     * 无标签思考：开头连续「推理句」后才出现对用户说话。
+     * 若前半像元分析、后半像对用户短答，只保留后半。
+     */
+    fun dropLeadingBareThinking(text: String): String {
+        if (text.isEmpty()) return text
+        val lines = text.replace("\r\n", "\n").split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+        if (lines.size < 2) return collapseWhitespace(text)
+        fun isBareThink(line: String): Boolean {
+            if (META_LEAD_LINE.containsMatchIn(line)) return true
+            if (META_LINE_MARKERS.any { line.contains(it, ignoreCase = true) }) return true
+            if (NUMBERED_META.containsMatchIn(line)) return true
+            if (line.startsWith("首先") || line.startsWith("其次") || line.startsWith("然后") ||
+                line.startsWith("最后") || line.startsWith("综上")
+            ) {
+                if (line.contains("分析") || line.contains("用户") || line.contains("应该") ||
+                    line.contains("工具") || line.contains("回复")
+                ) return true
+            }
+            if (line.contains("我应该") || line.contains("所以我") || line.contains("用户说")) return true
+            return false
+        }
+        fun looksLikeUserFacing(line: String): Boolean {
+            if (isBareThink(line)) return false
+            if (line.length > 120) return false
+            // 对用户说话：含称呼/问候/情态，或不含明显元分析词
+            val speechHints = listOf("哥哥", "你", "呀", "呢", "啦", "哦", "嗯", "好", "在", "想")
+            return speechHints.any { line.contains(it) } &&
+                !line.contains("分析") && !line.contains("工具") && !line.contains("意图")
+        }
+        var firstSpeech = -1
+        for (i in lines.indices) {
+            if (looksLikeUserFacing(lines[i]) && !isBareThink(lines[i])) {
+                firstSpeech = i
+                break
+            }
+        }
+        if (firstSpeech <= 0) return collapseWhitespace(text)
+        // 前面全是 bare think 才裁
+        if ((0 until firstSpeech).all { isBareThink(lines[it]) || lines[it].length < 2 }) {
+            return collapseWhitespace(lines.drop(firstSpeech).joinToString("\n"))
+        }
+        return collapseWhitespace(text)
     }
 
     fun extractSuggestedReply(text: String): String? {

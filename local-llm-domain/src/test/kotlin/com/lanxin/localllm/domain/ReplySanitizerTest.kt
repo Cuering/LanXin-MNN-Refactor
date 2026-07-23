@@ -126,4 +126,27 @@ class ReplySanitizerTest {
         assertFalse(d.contains("listen"))
         assertFalse(d.contains("[["))
     }
+
+    @Test
+    fun stripsBareThinkingWithoutTags() {
+        val raw = """
+            让我分析一下用户说的是什么。
+            用户意图是打招呼，所以我应该友好回应。
+            哥哥好呀，我是兰儿，今天想聊点什么？
+        """.trimIndent()
+        val cleaned = ReplySanitizer.clean(raw, showThinking = false)
+        assertTrue(cleaned.displayText.contains("兰儿") || cleaned.displayText.contains("哥哥"))
+        assertFalse(cleaned.displayText.contains("让我分析"))
+        assertFalse(cleaned.displayText.contains("用户意图"))
+        assertFalse(cleaned.displayText.contains("所以我应该"))
+    }
+
+    @Test
+    fun noThinkInstructionForbidsUntaggedThinking() {
+        assertTrue(ReplySanitizer.NO_THINK_INSTRUCTION.contains("禁止思考外泄") ||
+            ReplySanitizer.NO_THINK_INSTRUCTION.contains("无标签思考"))
+        assertTrue(ReplySanitizer.NO_THINK_INSTRUCTION.contains("第一句就必须是对用户说的话") ||
+            ReplySanitizer.NO_THINK_INSTRUCTION.contains("开场第一句"))
+    }
+
 }
