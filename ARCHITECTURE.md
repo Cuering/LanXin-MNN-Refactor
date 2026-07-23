@@ -155,6 +155,30 @@ app → voice
 | 录音/播放 | `PcmAudioRecorder` / `PcmAudioPlayer` | 纯 Java/Kotlin |
 | Live2D 壳 | `Live2DWebViewHost` + assets | assets/live2d/index.html |
 
+### 语音 & 多模态路线（2026-07-23）
+
+| 阶段 | 内容 | 状态 |
+|------|------|------|
+| **V1 语音回复链路** | Sherpa TTS 真合成主路径 + `ensureTtsReady()` + 试听按钮 + `looksLikeTtsModel`；删除系统 TTS 回退；禁止无标签思考（`NO_THINK_INSTRUCTION` 强化 + `dropLeadingBareThinking()`） | ✅ PR #3 已合 main |
+| **V2 完整语音聊天** | 麦 → ASR → 脑 → TTS 全链路；VAD 自动停麦已有，需接 ASR 真识别 → prompt → 生成 → TTS 播报 | ⬜ 待 V1 验证通过后开工 |
+| **V3 本地多模态（Vision）** | 相册/拍照 → `visual.mnn` 看图 → 生成回答；JNI 新增 `nativeGenerateWithImage`；`LocalLlmEngine.generate(prompt, imagePath)`；UI 加图按钮 + 缩略图气泡；检测模型目录 `visual.mnn` 存在 | ⬜ 可与 V2 并行 |
+
+#### V1 验证清单（用户手机侧）
+
+1. `/sdcard/LanXin/tts/<模型>/` 含 `tokens.txt` + `.onnx`
+2. 点「加载语音」→ 日志 `TTS=READY nativeTts=true looks=true`
+3. 点「试听 TTS」→ 应听到声音
+4. 发文字 → 回复后自动播报
+5. 气泡不应出现「让我分析」「用户意图」等无标签思考
+
+#### V3 多模态 MVP 设计
+
+- **JNI**：`nativeGenerateWithImage(prompt, imagePath, w, h)` → 解码图片 → `PromptImagePart` → `MultimodalPrompt` → `g_llm->response(...)`
+- **Domain**：`LocalLlmEngine.generate(prompt, imagePath: String? = null)`；无 `visual.mnn` 时明确报错/降级
+- **UI**：输入栏旁「图」按钮（相册 + 可选相机）；气泡显示缩略图 + 文字
+- **路径检测**：`LanXinPaths.isVisionReady(dir)` — 同目录有 `visual.mnn` 则多模态可用
+- **模型**：`taobao-mnn/Qwen3.5-2B-Claude-4.6-Opus-Reasoning-Distilled-MNN` 自带 `visual.mnn` + `visual.mnn.weight`
+
 ### 后续可做
 
 1. **真 Live2D Cubism 模型** — 当前为 Canvas 占位绘图；可集成 Cubism WebGL SDK 加载真 .moc3/.model3.json
