@@ -160,7 +160,7 @@ app → voice
 | 阶段 | 内容 | 状态 |
 |------|------|------|
 | **V1 语音回复链路** | Sherpa TTS 真合成主路径 + `ensureTtsReady()` + 试听按钮 + `looksLikeTtsModel`；删除系统 TTS 回退；禁止无标签思考（`NO_THINK_INSTRUCTION` 强化 + `dropLeadingBareThinking()`） | ✅ PR #3 已合 main |
-| **V2 完整语音聊天** | 麦 → ASR → 脑 → TTS 全链路；VAD 自动停麦已有，需接 ASR 真识别 → prompt → 生成 → TTS 播报 | ⬜ 待 V1 验证通过后开工 |
+| **V2 完整语音聊天** | 麦 → ASR → 脑 → TTS 全链路；`CompanionScreen.toggleMic()` + `VadAutoStopRecorder` + `chatFromVoice()` → ASR(Sherpa) → brain(LocalLlmEngine) → TTS(Sherpa) → pet lip sync；UI 默认 VAD 开 | ✅ 代码已合 main（随 P13/P14/UI-refactor 一起实现） |
 | **V3 本地多模态（Vision）** | 相册/拍照 → `visual.mnn` 看图 → 生成回答；JNI 新增 `nativeGenerateWithImage`；`LocalLlmEngine.generate(prompt, imagePath)`；UI 加图按钮 + 缩略图气泡；检测模型目录 `visual.mnn` 存在 | ⬜ 可与 V2 并行 |
 
 #### V1 验证清单（用户手机侧）
